@@ -1,0 +1,2824 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>國立虎尾科技大學 — 透視室內地圖系統</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e1a;
+            --surface: #111827;
+            --surface2: #1a2236;
+            --border: #1e2d45;
+            --accent: #38bdf8;
+            --accent2: #818cf8;
+            --success: #34d399;
+            --warn: #fb923c;
+            --text: #e2e8f0;
+            --muted: #64748b;
+            --glass: rgba(17,24,39,0.85);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 24px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .logo { display: flex; align-items: center; gap: 10px; }
+        .logo-icon {
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+        }
+        .logo h1 { font-size: 15px; font-weight: 800; color: var(--accent); letter-spacing: 0.02em; }
+        .logo p { font-size: 10px; color: var(--muted); margin-top: 1px; }
+        #liveClock {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px; color: var(--success);
+            background: rgba(52,211,153,0.08);
+            padding: 6px 14px; border-radius: 6px;
+            border: 1px solid rgba(52,211,153,0.2);
+        }
+
+        /* ── Layout ── */
+        .main {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            grid-template-rows: 1fr;
+            height: calc(100vh - 65px);
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Tab Bar ── */
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            background: var(--bg);
+        }
+        .tab-btn {
+            flex: 1; padding: 10px 4px 9px;
+            background: none; border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--muted); font-family: 'Noto Sans TC', sans-serif;
+            font-size: 10px; font-weight: 700; cursor: pointer;
+            transition: all 0.18s; letter-spacing: 0.03em;
+            display: flex; flex-direction: column; align-items: center; gap: 3px;
+        }
+        .tab-btn .tab-icon { font-size: 14px; line-height: 1; }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            background: rgba(56,189,248,0.04);
+        }
+        /* Tab badge (step count) */
+        .tab-badge {
+            display: none;
+            position: absolute; top: 4px; right: 4px;
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--warn); color: #fff;
+            font-size: 8px; font-weight: 800;
+            align-items: center; justify-content: center;
+        }
+        .tab-btn.has-badge { position: relative; }
+        .tab-btn.has-badge .tab-badge { display: flex; }
+
+        /* ── Tab Panels ── */
+        .tab-panel {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            flex-direction: column;
+        }
+        .tab-panel.active { display: flex; }
+        .tab-panel::-webkit-scrollbar { width: 4px; }
+        .tab-panel::-webkit-scrollbar-track { background: transparent; }
+        .tab-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* ── Search panel (tab 1) ── */
+        .search-panel {
+            padding: 14px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .input-label { font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+        .search-input {
+            width: 100%; padding: 10px 14px;
+            background: var(--bg);
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: 'Noto Sans TC', sans-serif;
+            font-size: 13px; font-weight: 600;
+            outline: none; transition: border-color 0.2s;
+        }
+        .search-input:focus { border-color: var(--accent); }
+        .hint { font-size: 10px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
+
+        .vehicle-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+        .v-btn {
+            padding: 9px; border-radius: 8px; font-size: 11px; font-weight: 700;
+            cursor: pointer; transition: all 0.2s; border: 1.5px solid var(--border);
+            background: var(--bg); color: var(--muted);
+        }
+        .v-btn.active { background: rgba(56,189,248,0.1); border-color: var(--accent); color: var(--accent); }
+
+        .nav-btn {
+            width: 100%; padding: 11px; border-radius: 8px;
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            border: none; color: #fff; font-family: 'Noto Sans TC', sans-serif;
+            font-size: 13px; font-weight: 800; cursor: pointer;
+            transition: opacity 0.2s; letter-spacing: 0.02em;
+        }
+        .nav-btn:hover { opacity: 0.9; }
+
+        /* ── Result Panel ── */
+        .result-panel {
+            flex: 1;
+            padding: 0;
+            display: none;
+        }
+        .result-panel.show { display: block; }
+        .result-panel::-webkit-scrollbar { width: 4px; }
+        .result-panel::-webkit-scrollbar-track { background: transparent; }
+        .result-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .res-section {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .res-title { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
+        .res-building {
+            font-size: 16px; font-weight: 900; color: #fff;
+            line-height: 1.3;
+        }
+        .res-building span { font-size: 11px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+        .res-target { font-size: 12px; color: var(--warn); margin-top: 4px; font-weight: 700; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; background: rgba(56,189,248,0.1); color: var(--accent); border: 1px solid rgba(56,189,248,0.2); }
+
+        /* stats row */
+        .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+        .stat-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+        .stat-val { font-size: 18px; font-weight: 900; color: var(--warn); font-family: 'JetBrains Mono', monospace; }
+        .stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+        .park-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+        .park-name { font-size: 13px; font-weight: 800; color: var(--success); }
+        .park-desc { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+
+        /* ── 3D ISO FLOOR MAP ── */
+        .iso-section {
+            padding: 14px 16px;
+        }
+        .floor-tabs {
+            display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px;
+        }
+        .floor-tab {
+            padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 700;
+            cursor: pointer; transition: all 0.15s;
+            border: 1px solid var(--border);
+            background: var(--bg); color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .floor-tab.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+        /* Isometric building viewer */
+        .iso-container {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        #isoCanvas {
+            width: 100%;
+            display: block;
+        }
+
+        /* Floor room list */
+        .room-list { display: flex; flex-direction: column; gap: 5px; max-height: 180px; overflow-y: auto; }
+        .room-list::-webkit-scrollbar { width: 3px; }
+        .room-list::-webkit-scrollbar-thumb { background: var(--border); }
+        .room-card {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 10px; border-radius: 7px;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            cursor: pointer; transition: border-color 0.15s;
+        }
+        .room-card:hover { border-color: var(--accent); }
+        .room-card.highlight { border-color: var(--warn); background: rgba(251,146,60,0.08); }
+        .room-icon { font-size: 14px; width: 22px; text-align: center; flex-shrink: 0; }
+        .room-info { flex: 1; min-width: 0; }
+        .room-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: var(--accent); }
+        .room-name { font-size: 11px; font-weight: 600; color: var(--text); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .room-type { font-size: 9px; color: var(--muted); margin-top: 1px; }
+
+        /* ── Map area ── */
+        .map-wrap { position: relative; flex: 1; }
+        #map { height: 100%; width: 100%; }
+
+        .map-controls {
+            position: absolute; top: 12px; right: 12px;
+            display: flex; flex-direction: column; gap: 6px; z-index: 999;
+        }
+        .map-btn {
+            background: var(--glass); backdrop-filter: blur(8px);
+            border: 1px solid var(--border); color: var(--text);
+            font-family: 'Noto Sans TC', sans-serif;
+            font-size: 11px; font-weight: 700;
+            padding: 8px 14px; border-radius: 7px;
+            cursor: pointer; transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .map-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* pulse dot */
+        .user-dot {
+            background: var(--accent); border-radius: 50%;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 0 rgba(56,189,248,0.7);
+            animation: pulse 1.8s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56,189,248,0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(56,189,248,0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56,189,248,0); }
+        }
+
+        /* Dark map tiles overlay */
+        .leaflet-tile { filter: brightness(0.7) saturate(0.8); }
+
+        /* ── Tooltip 3D floor popup ── */
+        .leaflet-popup-content-wrapper {
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: 10px !important;
+            color: var(--text) !important;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6) !important;
+        }
+        .leaflet-popup-tip { background: var(--surface) !important; }
+        .leaflet-popup-content { margin: 0 !important; }
+
+        /* ── Building tag markers ── */
+        .b-tag {
+            background: linear-gradient(135deg, #1a2236, #0f1624);
+            color: #fff; font-size: 10px; font-weight: 800;
+            padding: 4px 8px; border-radius: 5px;
+            border: 1px solid rgba(56,189,248,0.4);
+            white-space: nowrap; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.2s;
+        }
+        .b-tag:hover { border-color: var(--accent); }
+        .b-tag.targeted {
+            background: linear-gradient(135deg, #1e3a5f, #1a2a4a);
+            border-color: var(--warn);
+            color: var(--warn);
+        }
+
+        /* ── ISO Canvas tooltip ── */
+        #isoTooltip {
+            position: fixed;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 11px;
+            pointer-events: none;
+            display: none;
+            z-index: 9999;
+            max-width: 200px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+
+        /* ── Indoor Positioning Panel ── */
+        .indoor-panel {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin: 0 16px 12px;
+        }
+        .indoor-status {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; font-weight: 700;
+        }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--muted); flex-shrink: 0;
+            transition: background 0.3s;
+        }
+        .status-dot.active { background: var(--success); animation: blink 1.4s infinite; }
+        .status-dot.searching { background: var(--warn); animation: blink 0.8s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        .indoor-info {
+            margin-top: 8px;
+            display: grid; grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+        }
+        .indoor-chip {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 7px 8px;
+            text-align: center;
+        }
+        .indoor-chip-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; font-weight: 700;
+            color: var(--accent);
+        }
+        .indoor-chip-lbl { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+        .locate-indoor-btn {
+            width: 100%; margin-top: 8px;
+            padding: 8px; border-radius: 7px;
+            background: linear-gradient(135deg, rgba(56,189,248,0.15), rgba(129,140,248,0.15));
+            border: 1px solid rgba(56,189,248,0.3);
+            color: var(--accent); font-family: 'Noto Sans TC', sans-serif;
+            font-size: 12px; font-weight: 700; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .locate-indoor-btn:hover { background: rgba(56,189,248,0.2); }
+        .locate-indoor-btn.tracking {
+            background: linear-gradient(135deg, rgba(52,211,153,0.15), rgba(56,189,248,0.15));
+            border-color: rgba(52,211,153,0.4); color: var(--success);
+        }
+
+        /* You-are-here ISO dot */
+        .iso-you-ring {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            border: 2px solid var(--accent);
+            animation: ring-pulse 1.6s ease-out infinite;
+        }
+        @keyframes ring-pulse {
+            0% { transform: translate(-50%,-50%) scale(0.5); opacity:1; }
+            100% { transform: translate(-50%,-50%) scale(2.2); opacity:0; }
+        }
+
+        /* Accuracy badge */
+        .acc-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 9px; padding: 2px 6px; border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .acc-high { background: rgba(52,211,153,0.12); color: var(--success); border: 1px solid rgba(52,211,153,0.25); }
+        .acc-mid  { background: rgba(251,146,60,0.12);  color: var(--warn);    border: 1px solid rgba(251,146,60,0.25); }
+        .acc-low  { background: rgba(100,116,139,0.12); color: var(--muted);   border: 1px solid rgba(100,116,139,0.25); }
+
+        /* Indoor route path on ISO */
+        .iso-wrap { position: relative; }
+
+        /* ── Indoor Route Panel ── */
+        .route-panel {
+            display: none;
+        }
+        .route-panel.show { display: block; }
+
+        .route-header {
+            padding: 12px 16px 8px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .route-title { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+        .route-close {
+            width: 22px; height: 22px; border-radius: 5px;
+            background: var(--bg); border: 1px solid var(--border);
+            color: var(--muted); cursor: pointer; font-size: 13px;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s;
+        }
+        .route-close:hover { border-color: var(--warn); color: var(--warn); }
+
+        .route-summary {
+            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+            padding: 0 16px 10px;
+        }
+        .route-chip {
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 7px; padding: 7px 8px; text-align: center;
+        }
+        .route-chip-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px; font-weight: 800; color: var(--accent2);
+        }
+        .route-chip-lbl { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+        /* Step list */
+        .step-list {
+            padding: 0 14px 14px;
+            display: flex; flex-direction: column; gap: 4px;
+            max-height: none;
+        }
+        .step-list::-webkit-scrollbar { width: 3px; }
+        .step-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .step-item {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 9px 10px; border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            transition: all 0.2s; cursor: pointer;
+        }
+        .step-item.current {
+            border-color: var(--accent);
+            background: rgba(56,189,248,0.07);
+        }
+        .step-item.done {
+            opacity: 0.4;
+        }
+        .step-num {
+            width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 9px; font-weight: 800;
+            background: var(--border); color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .step-item.current .step-num { background: var(--accent); color: #000; }
+        .step-item.done .step-num { background: var(--success); color: #000; }
+
+        .step-body { flex: 1; min-width: 0; }
+        .step-action { font-size: 11px; font-weight: 700; color: var(--text); line-height: 1.4; }
+        .step-item.current .step-action { color: var(--accent); }
+        .step-detail { font-size: 10px; color: var(--muted); margin-top: 2px; }
+        .step-icon { font-size: 14px; flex-shrink: 0; line-height: 1; margin-top: 2px; }
+
+        /* step type colours */
+        .step-type-walk .step-num  { background: rgba(56,189,248,0.2); color: var(--accent); }
+        .step-type-lift .step-num  { background: rgba(129,140,248,0.2); color: var(--accent2); }
+        .step-type-stairs .step-num { background: rgba(52,211,153,0.2); color: var(--success); }
+        .step-type-exit .step-num  { background: rgba(251,146,60,0.2); color: var(--warn); }
+        .step-type-enter .step-num { background: rgba(251,146,60,0.2); color: var(--warn); }
+        .step-type-arrive .step-num { background: #34d399; color: #000; }
+
+        /* next/prev controls */
+        .step-controls {
+            display: flex; gap: 6px; padding: 0 16px 14px;
+        }
+        .step-btn {
+            flex: 1; padding: 8px; border-radius: 7px; font-size: 11px; font-weight: 700;
+            cursor: pointer; transition: all 0.2s; border: 1px solid var(--border);
+            background: var(--bg); color: var(--muted); font-family: 'Noto Sans TC', sans-serif;
+        }
+        .step-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .step-btn.primary {
+            background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.3);
+            color: var(--accent);
+        }
+
+        /* route btn */
+        .route-plan-btn {
+            width: 100%; margin-top: 8px;
+            padding: 9px; border-radius: 7px;
+            background: linear-gradient(135deg, rgba(129,140,248,0.18), rgba(56,189,248,0.18));
+            border: 1px solid rgba(129,140,248,0.35);
+            color: var(--accent2); font-family: 'Noto Sans TC', sans-serif;
+            font-size: 12px; font-weight: 700; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .route-plan-btn:hover { background: rgba(129,140,248,0.28); }
+        .route-plan-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ISO route overlay canvas */
+        #isoRouteCanvas {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main { grid-template-columns: 1fr; grid-template-rows: auto 400px; }
+            .sidebar { max-height: 55vh; overflow-y: auto; }
+        }
+        /* ── Social Feed ── */
+        .social-composer {
+            padding: 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface2);
+            flex-shrink: 0;
+        }
+        .composer-header { margin-bottom: 8px; }
+        .composer-loc-row {
+            display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px;
+        }
+        .composer-select {
+            width: 100%; padding: 7px 10px;
+            background: var(--bg); border: 1.5px solid var(--border);
+            border-radius: 7px; color: var(--text);
+            font-family: 'Noto Sans TC', sans-serif; font-size: 12px;
+            outline: none; cursor: pointer; transition: border-color 0.2s;
+        }
+        .composer-select:focus { border-color: var(--accent); }
+        .composer-textarea {
+            width: 100%; padding: 10px 12px; resize: none;
+            background: var(--bg); border: 1.5px solid var(--border);
+            border-radius: 8px; color: var(--text);
+            font-family: 'Noto Sans TC', sans-serif; font-size: 12px;
+            outline: none; transition: border-color 0.2s; line-height: 1.5;
+        }
+        .composer-textarea:focus { border-color: var(--accent); }
+        .composer-actions {
+            display: flex; align-items: center; gap: 8px; margin-top: 8px;
+        }
+        .photo-btn {
+            padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700;
+            border: 1px solid var(--border); background: var(--bg);
+            color: var(--muted); cursor: pointer; transition: all 0.2s; white-space: nowrap;
+        }
+        .photo-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .post-btn {
+            padding: 7px 18px; border-radius: 7px; font-size: 12px; font-weight: 800;
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            border: none; color: #fff; cursor: pointer; transition: opacity 0.2s;
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        .post-btn:hover { opacity: 0.88; }
+        .feed-filter {
+            display: flex; gap: 6px; padding: 10px 12px 6px; flex-shrink: 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .filter-btn {
+            padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700;
+            border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+            cursor: pointer; transition: all 0.18s; font-family: 'Noto Sans TC', sans-serif;
+            white-space: nowrap;
+        }
+        .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .filter-btn.active { background: rgba(56,189,248,0.12); border-color: var(--accent); color: var(--accent); }
+        /* Post card */
+        .post-card {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px;
+            transition: border-color 0.18s;
+        }
+        .post-card:hover { border-color: rgba(56,189,248,0.3); }
+        .post-loc {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10px; font-weight: 700; color: var(--accent);
+            background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.2);
+            border-radius: 5px; padding: 2px 8px; margin-bottom: 7px; cursor: pointer;
+        }
+        .post-loc:hover { background: rgba(56,189,248,0.15); }
+        .post-text {
+            font-size: 12px; color: var(--text); line-height: 1.6;
+            margin-bottom: 6px; word-break: break-word;
+        }
+        .post-img {
+            width: 100%; border-radius: 8px; max-height: 200px;
+            object-fit: cover; margin-bottom: 6px; display: block;
+            cursor: pointer;
+        }
+        .post-meta {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 10px; color: var(--muted); margin-top: 6px;
+        }
+        .post-time { flex: 1; }
+        .post-like-btn, .post-reply-btn {
+            background: none; border: none; color: var(--muted);
+            cursor: pointer; font-size: 11px; font-weight: 700; padding: 4px 8px;
+            border-radius: 5px; transition: all 0.15s; font-family: 'Noto Sans TC', sans-serif;
+        }
+        .post-like-btn:hover { background: rgba(251,146,60,0.1); color: var(--warn); }
+        .post-like-btn.liked { color: var(--warn); }
+        .post-reply-btn:hover { background: rgba(56,189,248,0.1); color: var(--accent); }
+        /* Replies */
+        .replies-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: none; }
+        .replies-section.open { display: block; }
+        .reply-item {
+            padding: 6px 0; border-bottom: 1px solid var(--border);
+            font-size: 11px; color: var(--text); line-height: 1.5;
+        }
+        .reply-item:last-child { border-bottom: none; }
+        .reply-nick { font-weight: 800; color: var(--accent2); margin-right: 4px; font-size: 10px; }
+        .reply-time { font-size: 9px; color: var(--muted); margin-left: 6px; }
+        .reply-composer {
+            display: flex; gap: 6px; margin-top: 8px; align-items: center;
+        }
+        .reply-input {
+            flex: 1; padding: 7px 10px; background: var(--bg);
+            border: 1px solid var(--border); border-radius: 7px;
+            color: var(--text); font-family: 'Noto Sans TC', sans-serif;
+            font-size: 11px; outline: none; transition: border-color 0.2s;
+        }
+        .reply-input:focus { border-color: var(--accent); }
+        .reply-send-btn {
+            padding: 7px 12px; border-radius: 7px; font-size: 11px; font-weight: 800;
+            background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3);
+            color: var(--accent); cursor: pointer; transition: all 0.15s;
+            font-family: 'Noto Sans TC', sans-serif; white-space: nowrap;
+        }
+        .reply-send-btn:hover { background: rgba(56,189,248,0.22); }
+        /* Image lightbox */
+        #imgLightbox {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 99999;
+            display: none; align-items: center; justify-content: center; cursor: zoom-out;
+        }
+        #imgLightbox.open { display: flex; }
+        #imgLightbox img { max-width: 92vw; max-height: 88vh; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.7); }
+        /* ── Floor stepper ── */
+        .floor-step-btn {
+            width: 24px; height: 24px; border-radius: 6px;
+            background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3);
+            color: var(--accent); font-size: 11px; font-weight: 900;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s; line-height: 1; padding: 0;
+        }
+        .floor-step-btn:hover:not(:disabled) { background: rgba(56,189,248,0.25); }
+        .floor-step-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+<header>
+    <div class="logo">
+        <div class="logo-icon">🏛️</div>
+        <div>
+            <h1>國立虎尾科技大學 NFU</h1>
+            <p>智慧校園透視導航系統 — 25 區停車場 · 室內樓層透視</p>
+        </div>
+    </div>
+    <div id="liveClock">📅 讀取中...</div>
+</header>
+
+<div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+            <button class="tab-btn active" id="tabBtnSearch" onclick="switchTab('search')">
+                <span class="tab-icon">🔍</span>導航搜尋
+            </button>
+            <button class="tab-btn" id="tabBtnLocate" onclick="switchTab('locate')">
+                <span class="tab-icon">📡</span>室內定位
+            </button>
+            <button class="tab-btn has-badge" id="tabBtnRoute" onclick="switchTab('route')">
+                <span class="tab-icon">🗺️</span>導航路線
+                <span class="tab-badge" id="routeStepBadge">0</span>
+            </button>
+            <button class="tab-btn" id="tabBtnSocial" onclick="switchTab('social')">
+                <span class="tab-icon">💬</span>地點貼文
+            </button>
+        </div>
+
+        <!-- Tab 1: Search & Result -->
+        <div class="tab-panel active" id="tabSearch">
+            <div class="search-panel">
+                <div class="input-label">🔍 輸入目的地（教室 / 老師 / 系辦）</div>
+                <input type="text" id="roomInput" class="search-input" value="CMA0901"
+                       placeholder="例如: CMA0901, 羅亦斯, 飛機工程系">
+                <p class="hint">💡 支援標準格式（如 BGC0401）與關鍵字模糊搜尋（如 管理學院、資訊管理、老師姓名）</p>
+                <div class="vehicle-row">
+                    <button class="v-btn active" id="btnAuto" onclick="selectVehicle('汽車')">🚗 汽車開車</button>
+                    <button class="v-btn" id="btnMoto" onclick="selectVehicle('機車')">🏍️ 機車騎車</button>
+                </div>
+                <button class="nav-btn" onclick="navigate()">開始精準跨區導航</button>
+            </div>
+            <!-- Result -->
+            <div class="result-panel" id="resultPanel">
+                <div class="res-section">
+                    <div class="res-title">🎯 導航目標</div>
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+                        <div>
+                            <div class="res-building" id="resBuildingName">--</div>
+                            <div class="res-target" id="resTarget">--</div>
+                        </div>
+                        <div class="badge" id="badgeCampus">--</div>
+                    </div>
+                    <div class="stats-row">
+                        <div class="stat-box"><div class="stat-val" id="resDistance">--</div><div class="stat-lbl">估算距離</div></div>
+                        <div class="stat-box"><div class="stat-val" id="resTime">--</div><div class="stat-lbl">步行時間</div></div>
+                    </div>
+                </div>
+                <div class="res-section">
+                    <div class="res-title">🅿️ 推薦停車場</div>
+                    <div class="park-box">
+                        <div class="park-name" id="resParking">--</div>
+                        <div class="park-desc" id="resParkingDesc">--</div>
+                    </div>
+                </div>
+                <!-- 3D ISO section -->
+                <div class="iso-section">
+                    <div class="res-title">🏢 透視樓層地圖 — <span id="txtCurrentFloor" style="color:var(--accent);font-family:'JetBrains Mono',monospace;">--</span></div>
+                    <div class="floor-tabs" id="floorTabs"></div>
+                    <div class="iso-container">
+                        <div class="iso-wrap" style="position:relative;">
+                            <canvas id="isoCanvas" height="220"></canvas>
+                            <canvas id="isoRouteCanvas" height="220"></canvas>
+                            <div id="youAreHere" style="position:absolute;display:none;pointer-events:none;"></div>
+                        </div>
+                    </div>
+                    <div class="res-title" style="margin-top:8px;">當前樓層空間清單</div>
+                    <div class="room-list" id="roomList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Indoor Positioning -->
+        <div class="tab-panel" id="tabLocate">
+            <div style="padding:14px;">
+                <!-- GPS warning banner -->
+                <div id="gpsWarnBanner" style="display:none;background:rgba(251,146,60,0.08);border:1px solid rgba(251,146,60,0.3);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11px;color:var(--warn);line-height:1.6;">
+                    ⚠️ <strong>GPS 精度不足（±<span id="gpsWarnAcc">?</span>m）</strong><br>
+                    室外手機 GPS 誤差可達數十至數百公尺，無法可靠判斷建築物。<br>
+                    請使用下方「<strong>手動選擇位置</strong>」指定你的建築與樓層。
+                </div>
+
+                <div class="indoor-panel" style="margin:0 0 10px;">
+                    <div class="indoor-status">
+                        <div class="status-dot" id="indoorDot"></div>
+                        <span id="indoorStatusText" style="color:var(--muted)">室內定位未啟動</span>
+                        <span id="indoorAccBadge"></span>
+                    </div>
+                    <div class="indoor-info">
+                        <div class="indoor-chip">
+                            <div class="indoor-chip-val" id="chipBuilding">--</div>
+                            <div class="indoor-chip-lbl">所在建築</div>
+                        </div>
+                        <div class="indoor-chip" style="padding:6px 8px;">
+                            <div style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                                <button class="floor-step-btn" id="floorDown" onclick="adjustFloor(-1)" disabled>▼</button>
+                                <div class="indoor-chip-val" id="chipFloor" style="min-width:28px;text-align:center;">--</div>
+                                <button class="floor-step-btn" id="floorUp" onclick="adjustFloor(+1)" disabled>▲</button>
+                            </div>
+                            <div class="indoor-chip-lbl">目前樓層</div>
+                        </div>
+                        <div class="indoor-chip">
+                            <div class="indoor-chip-val" id="chipRoom">--</div>
+                            <div class="indoor-chip-lbl">最近空間</div>
+                        </div>
+                    </div>
+                    <button class="locate-indoor-btn" id="indoorLocBtn" onclick="toggleIndoorLocate()">
+                        📡 啟動 GPS 定位
+                    </button>
+                </div>
+
+                <!-- Manual position picker -->
+                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+                    <div class="res-title" style="margin-bottom:8px;">📌 手動指定我的位置</div>
+                    <p class="hint" style="margin-bottom:8px;">GPS 精度不足時，請直接選擇你所在的建築與樓層</p>
+                    <select id="manualBuilding" class="composer-select" onchange="onManualBuildingChange()" style="margin-bottom:6px;">
+                        <option value="">— 選擇建築 —</option>
+                    </select>
+                    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+                        <select id="manualFloor" class="composer-select" style="flex:1;" disabled>
+                            <option value="">— 樓層 —</option>
+                        </select>
+                        <button onclick="applyManualPos()" class="nav-btn" style="width:auto;padding:8px 14px;font-size:12px;white-space:nowrap;">
+                            ✓ 套用
+                        </button>
+                    </div>
+                    <div id="manualPosStatus" style="font-size:10px;color:var(--muted);"></div>
+                </div>
+
+                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;">
+                    <div class="res-title" style="margin-bottom:8px;">🗺️ 規劃室內路線</div>
+                    <p class="hint" style="margin-bottom:8px;">設定位置後，輸入目的地並點擊下方按鈕規劃室內路線</p>
+                    <button class="route-plan-btn" id="routePlanBtn" onclick="planIndoorRoute()" disabled>
+                        🗺️ 規劃室內路線
+                    </button>
+                </div>
+
+                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;">
+                    <div class="res-title" style="margin-bottom:6px;">ℹ️ 使用說明</div>
+                    <p class="hint">
+                        <strong style="color:var(--accent)">GPS 精度限制說明：</strong><br>
+                        一般 GPS 在戶外誤差 5–30m，在室內可達 50–200m 以上，無法精確定位到建築物或樓層。<br><br>
+                        <strong style="color:var(--success)">建議做法：</strong><br>
+                        1. 使用「手動指定我的位置」選擇建築＋樓層<br>
+                        2. 到搜尋頁輸入目的地再回此頁規劃路線<br>
+                        3. 按 Alt+D 可模擬 CMA 9F 定位
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: Route Navigation -->
+        <div class="tab-panel" id="tabRoute">
+            <div id="routeEmptyState" style="padding:40px 20px;text-align:center;color:var(--muted);">
+                <div style="font-size:36px;margin-bottom:12px;">🗺️</div>
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px;">尚未規劃路線</div>
+                <div style="font-size:11px;line-height:1.6;">請先在搜尋頁輸入目的地，<br>啟動導航或規劃室內路線後，<br>步驟將顯示於此。</div>
+            </div>
+            <!-- Indoor Route Panel -->
+            <div class="route-panel" id="routePanel">
+                <div class="route-header">
+                    <div class="route-title">🚶 室內導航路線</div>
+                    <div class="route-close" onclick="clearRoute()">✕</div>
+                </div>
+                <div class="route-summary" id="routeSummary"></div>
+
+                <!-- ★ 透視地圖 (路線頁籤內) ★ -->
+                <div style="padding:0 14px 10px;">
+                    <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">
+                        🏢 當前步驟透視圖 — <span id="routeIsoFloorLabel" style="color:var(--accent);font-family:'JetBrains Mono',monospace;">--</span>
+                    </div>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;" id="routeFloorTabs"></div>
+                    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;">
+                        <div style="position:relative;">
+                            <canvas id="isoCanvasRoute" height="200" style="width:100%;display:block;"></canvas>
+                            <canvas id="isoRouteCanvasRoute" height="200" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step-list" id="stepList"></div>
+                <div class="step-controls">
+                    <button class="step-btn" onclick="prevStep()">← 上一步</button>
+                    <button class="step-btn primary" onclick="nextStep()">下一步 →</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 4: Social Feed -->
+        <div class="tab-panel" id="tabSocial">
+            <!-- Post composer -->
+            <div class="social-composer" id="socialComposer">
+                <div class="composer-header">
+                    <span style="font-size:12px;font-weight:800;color:var(--accent);">📌 發布地點貼文</span>
+                </div>
+                <div class="composer-loc-row">
+                    <span style="font-size:10px;color:var(--muted);font-weight:600;">選擇地點：</span>
+                    <select id="composerBuilding" class="composer-select" onchange="onComposerBuildingChange()">
+                        <option value="">— 選擇建築 —</option>
+                    </select>
+                    <select id="composerRoom" class="composer-select" style="margin-top:4px;">
+                        <option value="">— 選擇空間（選填）—</option>
+                    </select>
+                </div>
+                <textarea id="composerText" class="composer-textarea" placeholder="在這個地點發生了什麼事？分享你的心得、問題或有趣的事…" rows="3" maxlength="280"></textarea>
+                <div class="composer-actions">
+                    <label class="photo-btn">
+                        📷 加入照片
+                        <input type="file" id="composerPhoto" accept="image/*" style="display:none;" onchange="onPhotoSelected(this)">
+                    </label>
+                    <span id="composerCharCount" style="font-size:10px;color:var(--muted);margin-left:auto;">0/280</span>
+                    <button class="post-btn" onclick="submitPost()">發布</button>
+                </div>
+                <div id="composerPhotoPreview" style="display:none;margin-top:8px;position:relative;">
+                    <img id="previewImg" style="width:100%;border-radius:8px;max-height:160px;object-fit:cover;" />
+                    <button onclick="clearPhoto()" style="position:absolute;top:5px;right:5px;background:rgba(0,0,0,0.6);border:none;color:#fff;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;">✕</button>
+                </div>
+            </div>
+
+            <!-- Filter bar -->
+            <div class="feed-filter">
+                <button class="filter-btn active" onclick="setFeedFilter('all',this)">全部</button>
+                <button class="filter-btn" id="filterBuildingBtn" onclick="setFeedFilter('building',this)" style="display:none;">此建築</button>
+                <button class="filter-btn" onclick="setFeedFilter('photos',this)">📷 有照片</button>
+            </div>
+
+            <!-- Feed -->
+            <div id="socialFeed" style="padding:0 12px 12px;display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div class="map-wrap">
+        <div class="map-controls">
+            <button class="map-btn" onclick="locateUser()">📍 定位我的位置</button>
+            <button class="map-btn" id="iso3dToggleBtn" onclick="toggleIsoOverlay()" style="display:none;">🏗️ 顯示 3D 透視</button>
+        </div>
+        <div id="map"></div>
+    </div>
+</div>
+
+<!-- ISO tooltip -->
+<div id="isoTooltip"></div>
+
+<script>
+// ── Tab switching ──
+function switchTab(name) {
+    ['search','locate','route','social'].forEach(t => {
+        const panel = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+        const btn   = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
+        if (panel) panel.classList.toggle('active', t === name);
+        if (btn)   btn.classList.toggle('active', t === name);
+    });
+    if (name === 'social') renderFeed();
+    if (name === 'locate') initManualBuildings();
+}
+
+// ── Clock ──
+function updateClock() {
+    const n = new Date();
+    const pad = v => String(v).padStart(2,'0');
+    document.getElementById('liveClock').textContent =
+        `📅 ${n.getFullYear()}-${pad(n.getMonth()+1)}-${pad(n.getDate())} ⏰ ${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── Map init ──
+const map = L.map('map').setView([23.7023, 120.4315], 17);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+// ── Building data ──
+const buildings = {
+    "ATA": { name:"第一教學大樓", lat:23.70195, lng:120.42867, campus:"校本部", maxFloor:5, floors:{ "1":[{id:"ATA0101",name:"階梯教室",type:"class"},{id:"ATA0102",name:"多媒體教室",type:"class"}], "2":[{id:"ATA0201",name:"普通教室",type:"class"},{id:"ATA0202",name:"普通教室",type:"class"},{id:"ATA0203",name:"語言講練室",type:"lab"}], "3":[{id:"ATA0301",name:"普通教室",type:"class"},{id:"ATA0302",name:"普通教室",type:"class"},{id:"ATA0303",name:"基礎通識教室",type:"class"}], "4":[{id:"ATA0401",name:"多功能微格教室",type:"lab"},{id:"ATA0402",name:"互動討論教室",type:"class"}], "5":[{id:"ATA0501",name:"基礎化學實驗室",type:"lab"},{id:"ATA0502",name:"普通物理實驗室",type:"lab"}] }},
+    "ATB": { name:"第二教學大樓", lat:23.70217, lng:120.42858, campus:"校本部", maxFloor:5, floors:{ "1":[{id:"ATB0101",name:"階梯大講堂",type:"class"},{id:"ATB0102",name:"視聽會議室",type:"class"}], "2":[{id:"ATB0201",name:"通識基礎教室",type:"class"},{id:"ATB0202",name:"普通教室",type:"class"},{id:"ATB0203",name:"普通教室",type:"class"}], "3":[{id:"ATB0301",name:"歷史與文化研討室",type:"class"},{id:"ATB0302",name:"普通教室",type:"class"}], "4":[{id:"ATB0401",name:"音樂藝術美學教室",type:"class"},{id:"ATB0402",name:"創客跨領域工作坊",type:"lab"}], "5":[{id:"ATB0501",name:"遠距同步視聽教學中心",type:"lab"}] }},
+    "ATC": { name:"第三教學大樓", lat:23.70349, lng:120.42949, campus:"校本部", maxFloor:6, floors:{ "1":[{id:"ATC0101",name:"第一階梯演講廳",type:"class"},{id:"ATC0102",name:"智慧聯網多功能教室",type:"lab"}], "2":[{id:"ATC0201",name:"生物資源技術推廣教室",type:"class"},{id:"ATC0202",name:"共同普通教室",type:"class"}], "3":[{id:"ATC0301",name:"生物產業管理研討室",type:"class"},{id:"ATC0302",name:"普通教室",type:"class"}], "4":[{id:"ATC0401",name:"永續農業特論教室",type:"class"},{id:"ATC0402",name:"生態環境教學空間",type:"class"}], "5":[{id:"ATC0501",name:"智慧農業精準量測實驗室",type:"lab"}], "6":[{id:"ATC0601",name:"農業科技系系辦公室",type:"office"},{id:"ATC0602",name:"專任教授聯合研討室",type:"office"}] }},
+    "ATD": { name:"第四教學大樓", lat:23.70331, lng:120.43005, campus:"校本部", maxFloor:4, floors:{ "1":[{id:"ATD0101",name:"國際會議綜合大禮堂",type:"class"},{id:"ATD0102",name:"創客基地討論室",type:"class"}], "2":[{id:"ATD0201",name:"普通大教室",type:"class"},{id:"ATD0202",name:"共同學科教室",type:"class"}], "3":[{id:"ATD0301",name:"計算機基礎應用教室",type:"lab"},{id:"ATD0302",name:"智慧多媒體互動教室",type:"lab"}], "4":[{id:"ATD0401",name:"創新創業孵化講堂",type:"class"},{id:"ATD0402",name:"多功能產學協同教室",type:"office"}] }},
+    "AIA": { name:"資訊大樓", lat:23.70167, lng:120.42874, campus:"校本部", maxFloor:5, floors:{ "1":[{id:"AIA0101",name:"微電子封裝基礎實驗室",type:"lab"},{id:"AIA0102",name:"電子學實驗室",type:"lab"}], "2":[{id:"AIA0201",name:"數位邏輯設計硬體教室",type:"lab"},{id:"AIA0202",name:"嵌入式系統專業教室",type:"lab"}], "3":[{id:"AIA0301",name:"電子工程系系辦公室",type:"office"},{id:"AIA0302",name:"智慧感測元件研究室",type:"lab"}], "4":[{id:"AIA0401",name:"通訊工程與高頻量測實驗室",type:"lab"},{id:"AIA0402",name:"綠能電子研發實驗室",type:"lab"}], "5":[{id:"AIA0501",name:"半導體製程模擬計算中心",type:"lab"}] }},
+    "AME": { name:"機械工程館", lat:23.70151, lng:120.42908, campus:"校本部", maxFloor:4, floors:{ "1":[{id:"AME0101",name:"精密機械金工實習工廠",type:"lab"},{id:"AME0102",name:"材料破壞與力學實驗室",type:"lab"}], "2":[{id:"AME0201",name:"材料工程系系辦公室",type:"office"},{id:"AME0202",name:"掃描式電子顯微鏡(SEM)分析室",type:"lab"}], "3":[{id:"AME0301",name:"金屬材料熱處理實驗室",type:"lab"},{id:"AME0302",name:"X光繞射儀(XRD)光學分析室",type:"lab"}], "4":[{id:"AME0401",name:"奈米生醫材料研究室",type:"lab"},{id:"AME0402",name:"高分子複合材料加工室",type:"lab"}] }},
+    "CMA": { name:"文理暨管理大樓", lat:23.70131, lng:120.43336, campus:"第三校區", maxFloor:9, floors:{ "1":[{id:"CMA0101",name:"管理學院階梯視聽大堂",type:"class"},{id:"CMA0102",name:"跨國商業談判與模擬法庭",type:"class"}], "2":[{id:"CMA0201",name:"財務金融系虛擬交易所",type:"lab"},{id:"CMA0202",name:"金融科技FinTech演練研究室",type:"lab"}], "3":[{id:"CMA0301",name:"企業管理系ERP企業資源規劃教室",type:"lab"},{id:"CMA0302",name:"商業大數據分析室",type:"lab"}], "4":[{id:"CMA0401",name:"工業管理系作業研究模擬實驗室",type:"lab"},{id:"CMA0405",name:"資訊管理系專業電腦教室",type:"lab"}], "5":[{id:"CMA0501",name:"文理學院院辦公室",type:"office"},{id:"CMA0505",name:"休閒遊憩系系辦公室",type:"office"},{id:"CMA0506",name:"生態觀光與遊憩資源規劃工作坊",type:"lab"}], "6":[{id:"CMA0601",name:"管理學院院辦公室",type:"office"},{id:"CMA0614",name:"專業研討暨口試教室",type:"class"},{id:"CMA0615",name:"個案研究教室",type:"class"}], "7":[{id:"CMA0701",name:"企業管理系系辦公室",type:"office"},{id:"CMA0702",name:"財務金融系系辦公室",type:"office"},{id:"CMA0703",name:"工業管理系系辦公室",type:"office"}], "8":[{id:"CMA0801",name:"應用情境智慧商務研究室",type:"lab"},{id:"CMA0802",name:"組織行為與人力資源發展研討室",type:"class"}], "9":[{id:"CMA0901",name:"資訊管理系系辦公室",type:"office"},{id:"CMA0906",name:"行動商務實驗室",type:"lab"},{id:"CMA0907",name:"羅亦斯 老師研究室",type:"office"},{id:"CMA0908",name:"胡念祖 老師研究室",type:"office"},{id:"CMA0909",name:"吳昌憲 老師研究室",type:"office"},{id:"CMA0911",name:"陳大正 老師研究室",type:"office"},{id:"CMA0912",name:"藍友烽 老師研究室",type:"office"},{id:"CMA0913",name:"林彥昆 老師研究室",type:"office"},{id:"CMA0914",name:"侯雍聰 老師研究室",type:"office"},{id:"CMA0915",name:"吳純慧 老師研究室",type:"office"},{id:"CMA0917",name:"阮炳嵐 老師研究室",type:"office"},{id:"CMA0918",name:"楊達立 老師研究室",type:"office"},{id:"CMA0919",name:"郭文宏 老師研究室",type:"office"},{id:"CMA0920",name:"蕭育如 老師研究室",type:"office"}] }},
+    "CHB": { name:"人文大樓", lat:23.70194, lng:120.43335, campus:"第三校區", maxFloor:5, floors:{ "1":[{id:"CHB0101",name:"遠距教學多媒體演講廳",type:"class"},{id:"CHB0102",name:"國際會議同步翻譯廳",type:"class"}], "2":[{id:"CHB0201",name:"生物科技系系辦公室",type:"office"},{id:"CHB0202",name:"微生物學與免疫學基礎教學實驗室",type:"lab"},{id:"CHB0203",name:"植物組織培養與基因工程研究室",type:"lab"}], "3":[{id:"CHB0301",name:"應用外語系系辦公室",type:"office"},{id:"CHB0302",name:"數位語言同步講練多媒體教室",type:"lab"},{id:"CHB0303",name:"英語口譯與情境模擬實習室",type:"lab"}], "4":[{id:"CHB0401",name:"多媒體設計系數位動漫後製工作室",type:"lab"},{id:"CHB0402",name:"虛擬實境(VR/AR)互動感官體驗實驗室",type:"lab"}], "5":[{id:"CHB0501",name:"多媒體設計系系辦公室",type:"office"},{id:"CHB0502",name:"當代藝術與數位視覺傳達設計工坊",type:"lab"},{id:"CHB0503",name:"3D數位建模與動畫渲染運算中心",type:"lab"}] }},
+    "BGA": { name:"綜一館", lat:23.70246, lng:120.43107, campus:"第二校區", maxFloor:7, floors:{ "1":[{id:"BGA0101",name:"精密光電實習工廠",type:"lab"},{id:"BGA0102",name:"自動化控制基礎教具室",type:"lab"}], "2":[{id:"BGA0201",name:"光電工程系系辦公室",type:"office"},{id:"BGA0202",name:"雷射光學與全像術實驗室",type:"lab"}], "3":[{id:"BGA0301",name:"自動化工程系系辦公室",type:"office"},{id:"BGA0302",name:"可程式邏輯控制器PLC教學室",type:"lab"}], "4":[{id:"BGA0401",name:"工業機器人整合應用實驗室",type:"lab"},{id:"BGA0402",name:"智慧感測網路系統研發室",type:"lab"}], "5":[{id:"BGA0501",name:"機械設計CAD/CAM專業電腦教室",type:"lab"},{id:"BGA0502",name:"逆向工程與3D列印實作室",type:"lab"}], "6":[{id:"BGA0601",name:"機構學與傳動系統設計研究室",type:"lab"}], "7":[{id:"BGA0701",name:"機械設計工程系系辦公室",type:"office"},{id:"BGA0702",name:"機械設計前瞻技術研討室",type:"office"}] }},
+    "BEE": { name:"電機館", lat:23.70297, lng:120.43133, campus:"第二校區", maxFloor:4, floors:{ "1":[{id:"BEE0101",name:"高壓電力與電機機械實習工廠",type:"lab"},{id:"BEE0102",name:"電力電子與電力系統模擬室",type:"lab"}], "2":[{id:"BEE0201",name:"電機工程系系辦公室",type:"office"},{id:"BEE0202",name:"控制系統與智慧型機器人實驗室",type:"lab"}], "3":[{id:"BEE0301",name:"訊號處理與微處理器微課堂",type:"lab"},{id:"BEE0302",name:"生醫電子與光電感測研究室",type:"lab"}], "4":[{id:"BEE0401",name:"有線與無線通訊系統實作教室",type:"lab"},{id:"BEE0402",name:"電磁相容(EMC)量測檢驗實驗室",type:"lab"}] }},
+    "BGC": { name:"綜三館", lat:23.70358, lng:120.43130, campus:"第二校區", maxFloor:9, floors:{ "1":[{id:"BGC0101",name:"飛機結構與氣動彈性力學實驗室",type:"lab"},{id:"BGC0102",name:"航空發動機拆裝實習工廠",type:"lab"}], "2":[{id:"BGC0201",name:"航空電子通信與導航系統教學室",type:"lab"},{id:"BGC0202",name:"無人飛行載具(UAV)設計工坊",type:"lab"}], "3":[{id:"BGC0301",name:"機電整合先進控制實驗室",type:"lab"},{id:"BGC0302",name:"物聯網IoT智慧應用開發教室",type:"lab"}], "4":[{id:"BGC0401",name:"資訊工程系系辦公室",type:"office"},{id:"BGC0402",name:"電機資訊學院院辦公室",type:"office"},{id:"BGC0403",name:"計算機網路與雲端計算實驗室",type:"lab"}], "5":[{id:"BGC0501",name:"人工智慧與大數據分析專業電腦教室",type:"lab"},{id:"BGC0502",name:"軟體工程與密碼學研究室",type:"lab"}], "6":[{id:"BGC0601",name:"晶片設計與嵌入式架構實驗室",type:"lab"}], "7":[{id:"BGC0701",name:"數位訊號處理(DSP)與影像辨識研究室",type:"lab"}], "8":[{id:"BGC0801",name:"前瞻平行運算與分散式系統伺服器機房",type:"lab"}], "9":[{id:"BGC0901",name:"飛機工程系系辦公室",type:"office"},{id:"BGC0902",name:"航空安全與維修管理政策研討室",type:"office"}] }},
+    "BGB": { name:"綜二館", lat:23.70388, lng:120.43054, campus:"第二校區", maxFloor:6, floors:{ "1":[{id:"BGB0101",name:"大型內燃機與油電混合動力實習車間",type:"lab"},{id:"BGB0102",name:"車輛流體力學風洞實驗室",type:"lab"}], "2":[{id:"BGB0201",name:"熱力學與熱傳導精準量測研究室",type:"lab"},{id:"BGB0202",name:"電腦輔助工程分析(CAE)電腦教室",type:"lab"}], "3":[{id:"BGB0301",name:"動力機械精密加工技術室",type:"lab"},{id:"BGB0302",name:"氣壓與液壓控制訊號實驗室",type:"lab"}], "4":[{id:"BGB0401",name:"綠能機電系統整合研究室",type:"lab"}], "5":[{id:"BGB0501",name:"動力機械工程系系辦公室",type:"office"},{id:"BGB0502",name:"製造自動化與震動噪音分析室",type:"lab"}], "6":[{id:"BGB0601",name:"工程學院院辦公室",type:"office"},{id:"BGB0602",name:"工程學院專案跨領域國際會議廳",type:"class"}] }},
+    "CPG": { name:"體育館(經國館)", lat:23.70189, lng:120.43211, campus:"第三校區", maxFloor:3, floors:{} },
+    "ASA": { name:"學生活動中心", lat:23.70195, lng:120.43037, campus:"校本部", maxFloor:4, floors:{} }
+};
+
+// ── Parking data ──
+const staticParkingData = [
+    {areaIndex:1,vehicleType:"汽車",centerCoords:[23.70234,120.43287],pointsArray:[[23.70229,120.43255],[23.70208,120.43262],[23.70229,120.43306],[23.70246,120.43301],[23.70246,120.43298],[23.70248,120.43298]]},
+    {areaIndex:2,vehicleType:"機車",centerCoords:[23.70243,120.43275],pointsArray:[[23.70257,120.43294],[23.70247,120.43299],[23.70231,120.43255],[23.70237,120.43253]]},
+    {areaIndex:3,vehicleType:"機車",centerCoords:[23.70181,120.43358],pointsArray:[[23.70215,120.43333],[23.70127,120.43378],[23.7013,120.43391],[23.70215,120.43345],[23.70218,120.43344]]},
+    {areaIndex:4,vehicleType:"機車",centerCoords:[23.701,120.43392],pointsArray:[[23.7011,120.43373],[23.7008,120.43392],[23.70092,120.43409],[23.7012,120.43394]]},
+    {areaIndex:5,vehicleType:"汽車",centerCoords:[23.70218,120.43317],pointsArray:[[23.70222,120.43299],[23.70203,120.43309],[23.70216,120.43333],[23.70232,120.43326]]},
+    {areaIndex:6,vehicleType:"機車",centerCoords:[23.70199,120.43168],pointsArray:[[23.70222,120.43211],[23.70215,120.43217],[23.70176,120.43125],[23.70182,120.43121]]},
+    {areaIndex:7,vehicleType:"機車",centerCoords:[23.70163,120.43095],pointsArray:[[23.70179,120.43111],[23.70166,120.43082],[23.70143,120.43092]]},
+    {areaIndex:8,vehicleType:"機車",centerCoords:[23.70193,120.4312],pointsArray:[[23.70211,120.4315],[23.70204,120.43154],[23.70176,120.43089],[23.70183,120.43087]]},
+    {areaIndex:9,vehicleType:"汽車",centerCoords:[23.70207,120.43117],pointsArray:[[23.70224,120.43133],[23.70209,120.43141],[23.7019,120.43099],[23.70206,120.43095]]},
+    {areaIndex:10,vehicleType:"機車",centerCoords:[23.70228,120.43138],pointsArray:[[23.70213,120.43148],[23.7021,120.43143],[23.70243,120.43126],[23.70245,120.43134]]},
+    {areaIndex:11,vehicleType:"汽車",centerCoords:[23.70302,120.43162],pointsArray:[[23.70313,120.4315],[23.70286,120.43163],[23.70292,120.43174],[23.70316,120.43163]]},
+    {areaIndex:12,vehicleType:"機車",centerCoords:[23.70277,120.43152],pointsArray:[[23.7029,120.43172],[23.70284,120.43174],[23.70265,120.43133],[23.7027,120.4313]]},
+    {areaIndex:13,vehicleType:"機車",centerCoords:[23.70358,120.43146],pointsArray:[[23.70375,120.43141],[23.70373,120.43135],[23.7034,120.43152],[23.70343,120.43156]]},
+    {areaIndex:14,vehicleType:"機車",centerCoords:[23.70401,120.43116],pointsArray:[[23.70421,120.43101],[23.70422,120.43109],[23.70382,120.43129],[23.7038,120.43124]]},
+    {areaIndex:15,vehicleType:"機車",centerCoords:[23.70423,120.43063],pointsArray:[[23.70445,120.43088],[23.70432,120.43094],[23.70405,120.43036],[23.70409,120.43033]]},
+    {areaIndex:16,vehicleType:"機車",centerCoords:[23.70113,120.42977],pointsArray:[[23.70153,120.43071],[23.7008,120.42881],[23.70072,120.42883],[23.70148,120.43073]]},
+    {areaIndex:17,vehicleType:"機車",centerCoords:[23.702,120.43058],pointsArray:[[23.70292,120.43041],[23.70152,120.43082],[23.70148,120.43074],[23.7029,120.43033]]},
+    {areaIndex:18,vehicleType:"機車",centerCoords:[23.70103,120.42858],pointsArray:[[23.70066,120.42873],[23.70141,120.4285],[23.70139,120.42842],[23.70065,120.42866]]},
+    {areaIndex:19,vehicleType:"機車",centerCoords:[23.70189,120.42828],pointsArray:[[23.70145,120.42847],[23.70235,120.42818],[23.70232,120.42807],[23.70143,120.428]]},
+    {areaIndex:20,vehicleType:"機車",centerCoords:[23.70252,120.42805],pointsArray:[[23.70237,120.42816],[23.70271,120.42804],[23.70266,120.42794],[23.70234,120.42806]]},
+    {areaIndex:21,vehicleType:"機車",centerCoords:[23.70333,120.42906],pointsArray:[[23.70272,120.42808],[23.70391,120.43005],[23.70394,120.43003],[23.70275,120.42806]]},
+    {areaIndex:22,vehicleType:"機車",centerCoords:[23.70346,120.43019],pointsArray:[[23.70389,120.43007],[23.70307,120.43038],[23.70302,120.43029],[23.70386,120.43003]]},
+    {areaIndex:23,vehicleType:"機車",centerCoords:[23.70297,120.42869],pointsArray:[[23.70315,120.42885],[23.70304,120.42891],[23.70279,120.42852],[23.7029,120.42847]]},
+    {areaIndex:24,vehicleType:"汽車",centerCoords:[23.70237,120.43027],pointsArray:[[23.70244,120.43003],[23.70215,120.43016],[23.70229,120.43049],[23.70259,120.43039]]},
+    {areaIndex:25,vehicleType:"汽車",centerCoords:[23.7026,120.42835],pointsArray:[[23.70286,120.42841],[23.70267,120.4281],[23.70235,120.42827],[23.70254,120.4286]]}
+];
+
+// ── Draw parking ──
+staticParkingData.forEach(item => {
+    const color = item.vehicleType === '汽車' ? '#34d399' : '#fb923c';
+    L.polygon(item.pointsArray, {
+        color, fillColor: color, fillOpacity: 0.18, weight: 1.5
+    }).addTo(map).bindPopup(`<b style="color:#34d399">🅿️ 停車場域 #${item.areaIndex}</b><br><span style="color:#94a3b8">${item.vehicleType}</span>`);
+});
+
+// ── Building markers ──
+const bMarkers = {};
+for (let code in buildings) {
+    const b = buildings[code];
+    const el = L.divIcon({
+        className: '',
+        html: `<div class="b-tag" id="tag_${code}">${code}</div>`,
+        iconSize: [48, 22], iconAnchor: [24, 11]
+    });
+    const m = L.marker([b.lat, b.lng], { icon: el }).addTo(map);
+    m.on('click', () => {
+        // Click building tag → show iso viewer for that building floor 1
+        showIsoForBuilding(code, 1);
+    });
+    bMarkers[code] = m;
+}
+
+// ── State ──
+let currentVehicle = '汽車';
+let routePolyline = null, parkSpotMarker = null;
+let activeBuildingCode = null, activeFloor = 1;
+let targetRoomId = null;
+
+function selectVehicle(t) {
+    currentVehicle = t;
+    document.getElementById('btnAuto').className = 'v-btn' + (t==='汽車'?' active':'');
+    document.getElementById('btnMoto').className = 'v-btn' + (t==='機車'?' active':'');
+}
+
+function getDistance(lat1,lon1,lat2,lon2){
+    const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+    const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// ── Navigate ──
+function navigate() {
+    const query = document.getElementById('roomInput').value.trim();
+    if (!query) { alert('⚠️ 請先輸入要搜尋的地點！'); return; }
+
+    let targetCode=null, targetFloor=1, displayTitle='', foundRoomId=null;
+    const codeMatch = query.toUpperCase().match(/^([A-Z]{3})(\d{3,4})$/);
+
+    if (codeMatch && buildings[codeMatch[1]]) {
+        targetCode = codeMatch[1];
+        const rn = codeMatch[2];
+        targetFloor = rn.length===4 ? parseInt(rn.substring(0,2)) : parseInt(rn.charAt(0));
+        const b = buildings[targetCode];
+        const floorRooms = b.floors[targetFloor.toString()] || [];
+        const found = floorRooms.find(r=>r.id===query.toUpperCase());
+        if (found) { displayTitle=`${found.id} [${found.name}]`; foundRoomId=found.id; }
+        else displayTitle = `${query.toUpperCase()} 空間`;
+    } else {
+        outer: for (let code in buildings) {
+            const b = buildings[code];
+            for (let f in b.floors) {
+                const m = b.floors[f].find(r=>r.name.includes(query)||r.id.includes(query.toUpperCase()));
+                if (m) { targetCode=code; targetFloor=parseInt(f); displayTitle=`${m.id} — ${m.name}`; foundRoomId=m.id; break outer; }
+            }
+        }
+        if (!targetCode) {
+            for (let code in buildings) {
+                if (buildings[code].name.includes(query)||code===query.toUpperCase()) {
+                    targetCode=code; displayTitle='主要大樓核心範圍'; targetFloor=1; break;
+                }
+            }
+        }
+    }
+
+    if (!targetCode) { alert(`⚠️ 找不到「${query}」相關地點。\n請輸入大樓代碼（如CMA0901）或關鍵字。`); return; }
+
+    targetRoomId = foundRoomId;
+    const b = buildings[targetCode];
+
+    // highlight tag
+    document.querySelectorAll('.b-tag').forEach(el=>el.classList.remove('targeted'));
+    const tagEl = document.getElementById(`tag_${targetCode}`);
+    if (tagEl) tagEl.classList.add('targeted');
+
+    // route
+    if (routePolyline) map.removeLayer(routePolyline);
+    if (parkSpotMarker) map.removeLayer(parkSpotMarker);
+
+    const matchedLots = staticParkingData.filter(l=>l.vehicleType===currentVehicle);
+    let startCenter=[23.7023,120.4315], parkLabel='校園公用停車區域', parkDesc=`未找到特定${currentVehicle}場域。`;
+    if (matchedLots.length>0) {
+        let best=matchedLots[0], minD=999999;
+        matchedLots.forEach(l=>{ const d=getDistance(l.centerCoords[0],l.centerCoords[1],b.lat,b.lng); if(d<minD){minD=d;best=l;} });
+        startCenter=best.centerCoords;
+        parkLabel=`【${currentVehicle}場域 #${best.areaIndex}】`;
+        parkDesc=`此場域與目標建築直線距離最近，推薦泊車起點。`;
+    }
+
+    routePolyline = L.polyline([startCenter,[b.lat,b.lng]],{color:'#34d399',weight:5,dashArray:'10,8',opacity:0.9}).addTo(map);
+    const parkIcon = L.divIcon({
+        className: '',
+        html: `<div style="
+            width:28px;height:28px;border-radius:50%;
+            background:linear-gradient(135deg,#0ea5e9,#34d399);
+            border:2px solid #fff;
+            box-shadow:0 2px 8px rgba(0,0,0,0.5);
+            display:flex;align-items:center;justify-content:center;
+            font-size:14px;font-weight:900;color:#fff;
+            font-family:'JetBrains Mono',monospace;line-height:1;
+        ">P</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14]
+    });
+    parkSpotMarker = L.marker(startCenter, { icon: parkIcon })
+        .addTo(map).bindPopup(`<b style="color:#34d399">🅿️ 推薦停車場</b><br>${parkLabel}`);
+
+    const bounds = routePolyline.getBounds();
+    map.fitBounds(bounds,{padding:[80,80]});
+    bMarkers[targetCode].openPopup && bMarkers[targetCode].openPopup();
+
+    const meters = getDistance(startCenter[0],startCenter[1],b.lat,b.lng);
+    document.getElementById('resBuildingName').innerHTML = `${b.name} <span>[${targetCode}]</span>`;
+    document.getElementById('resTarget').textContent = `🎯 ${displayTitle}`;
+    document.getElementById('badgeCampus').textContent = b.campus;
+    document.getElementById('resParking').textContent = parkLabel;
+    document.getElementById('resParkingDesc').textContent = parkDesc;
+    document.getElementById('resDistance').textContent = `${Math.round(meters)}m`;
+    document.getElementById('resTime').textContent = `~${Math.ceil(meters/65)}分`;
+    document.getElementById('resultPanel').classList.add('show');
+    document.getElementById('iso3dToggleBtn').style.display = 'block';
+    switchTab('search');
+
+    showIsoForBuilding(targetCode, targetFloor);
+}
+
+// ── Isometric Floor Viewer ──
+let isoMap = null; // Leaflet overlay for iso popup
+const ROOM_COLORS = { office:'#818cf8', lab:'#34d399', class:'#38bdf8', default:'#64748b' };
+const ROOM_LABELS = { office:'辦公室', lab:'實驗室', class:'教室' };
+
+function showIsoForBuilding(code, floor) {
+    activeBuildingCode = code;
+    const b = buildings[code];
+    if (!b) return;
+    const maxF = b.maxFloor || 1;
+    activeFloor = Math.min(Math.max(floor,1), maxF);
+
+    // Build floor tabs
+    const tabsEl = document.getElementById('floorTabs');
+    tabsEl.innerHTML = '';
+    for (let f=1; f<=maxF; f++) {
+        const btn = document.createElement('button');
+        btn.className = 'floor-tab' + (f===activeFloor?' active':'');
+        btn.textContent = `${f}F`;
+        btn.onclick = () => { activeFloor=f; refreshIso(); };
+        tabsEl.appendChild(btn);
+    }
+    refreshIso();
+}
+
+function refreshIso() {
+    if (!activeBuildingCode) return;
+    const b = buildings[activeBuildingCode];
+    const maxF = b.maxFloor || 1;
+
+    // update tabs
+    document.querySelectorAll('.floor-tab').forEach((btn,i)=>{
+        btn.className = 'floor-tab' + (i+1===activeFloor?' active':'');
+        btn.onclick = () => { activeFloor=i+1; refreshIso(); };
+    });
+    document.getElementById('txtCurrentFloor').textContent = `${activeFloor} 樓`;
+
+    drawIsoCanvas(b, activeFloor, maxF);
+    renderRoomList(b, activeFloor);
+}
+
+// ── Canvas ISO Drawing ──
+function drawIsoCanvas(b, currentFloor, maxFloor) {
+    const canvas = document.getElementById('isoCanvas');
+    const cw = canvas.parentElement.clientWidth - 24;
+    canvas.width = cw;
+    canvas.height = 220;
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0,0,cw,220);
+
+    // Isometric transform helpers
+    const ISO_X = cw/2;
+    const ISO_Y = 160;
+    const TW = 54; // tile half-width
+    const TH = 28; // tile half-height
+    const FH = 18; // floor height in iso
+    const COLS = 3, ROWS = 2;
+
+    function iso(col, row, floor) {
+        const x = ISO_X + (col - row) * TW;
+        const y = ISO_Y + (col + row) * TH - floor * FH;
+        return [x, y];
+    }
+
+    function drawFloor(floor, rooms, isActive, isTarget) {
+        const alpha = isActive ? 1 : 0.35;
+        const scale = isActive ? 1 : 0.85;
+        ctx.globalAlpha = alpha;
+
+        for (let row=0; row<ROWS; row++) {
+            for (let col=0; col<COLS; col++) {
+                const roomIdx = row * COLS + col;
+                const room = rooms && rooms[roomIdx];
+                const baseColor = room ? (ROOM_COLORS[room.type] || ROOM_COLORS.default) : '#1e2d45';
+                const isHighlight = room && targetRoomId && room.id === targetRoomId;
+
+                const [tx, ty] = iso(col, row, floor);
+
+                // Top face
+                ctx.beginPath();
+                ctx.moveTo(tx, ty - TH);
+                ctx.lineTo(tx + TW, ty);
+                ctx.lineTo(tx, ty + TH);
+                ctx.lineTo(tx - TW, ty);
+                ctx.closePath();
+
+                if (isHighlight) {
+                    ctx.fillStyle = '#fb923c';
+                } else if (room) {
+                    ctx.fillStyle = baseColor + '55';
+                } else {
+                    ctx.fillStyle = isActive ? '#1e2d4588' : '#0a0e1a44';
+                }
+                ctx.fill();
+                ctx.strokeStyle = isHighlight ? '#fb923c' : (isActive ? baseColor + 'aa' : '#1e2d4566');
+                ctx.lineWidth = isHighlight ? 2 : 1;
+                ctx.stroke();
+
+                // Left face
+                ctx.beginPath();
+                ctx.moveTo(tx - TW, ty);
+                ctx.lineTo(tx, ty + TH);
+                ctx.lineTo(tx, ty + TH + FH);
+                ctx.lineTo(tx - TW, ty + FH);
+                ctx.closePath();
+                ctx.fillStyle = isHighlight ? '#c2410c' : (isActive ? '#0f1624cc' : '#0a0e1a44');
+                ctx.fill();
+                ctx.strokeStyle = isHighlight ? '#fb923c' : (isActive ? '#1e2d45' : '#1e2d4533');
+                ctx.lineWidth = 1; ctx.stroke();
+
+                // Right face
+                ctx.beginPath();
+                ctx.moveTo(tx + TW, ty);
+                ctx.lineTo(tx, ty + TH);
+                ctx.lineTo(tx, ty + TH + FH);
+                ctx.lineTo(tx + TW, ty + FH);
+                ctx.closePath();
+                ctx.fillStyle = isHighlight ? '#7c2d12' : (isActive ? '#0a0e1aaa' : '#0a0e1a33');
+                ctx.fill();
+                ctx.strokeStyle = isHighlight ? '#fb923c' : (isActive ? '#1e2d45' : '#1e2d4522');
+                ctx.lineWidth = 1; ctx.stroke();
+
+                // Room label on top face
+                if (room && isActive) {
+                    const [lx, ly] = [tx, ty - 2];
+                    ctx.fillStyle = isHighlight ? '#fff' : baseColor;
+                    ctx.font = `bold ${isHighlight?'8':'7'}px JetBrains Mono, monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(room.id.slice(-4), lx, ly);
+                }
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // Draw all floors bottom to top
+    for (let f=1; f<=Math.min(maxFloor,12); f++) {
+        const rooms = b.floors[f.toString()] || [];
+        drawFloor(f, rooms, f===currentFloor, false);
+    }
+
+    // Floor label
+    const [lx, ly] = iso(1, 0.5, currentFloor);
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = 'bold 11px Noto Sans TC, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${currentFloor}F`, lx, ly - TH - 6);
+
+    // Legend
+    const legendY = canvas.height - 14;
+    [['辦公室','#818cf8'],['實驗室','#34d399'],['教室','#38bdf8'],['目標','#fb923c']].forEach(([lbl,clr],i)=>{
+        const lx2 = 10 + i*70;
+        ctx.fillStyle = clr+'66'; ctx.fillRect(lx2, legendY-8, 10, 10);
+        ctx.strokeStyle = clr; ctx.lineWidth=1; ctx.strokeRect(lx2, legendY-8, 10, 10);
+        ctx.fillStyle = '#64748b'; ctx.font = '9px Noto Sans TC, sans-serif';
+        ctx.textAlign='left'; ctx.fillText(lbl, lx2+13, legendY);
+    });
+
+    // Store room positions for hover
+    canvas._roomPositions = [];
+    const rooms = b.floors[currentFloor.toString()] || [];
+    for (let row=0; row<ROWS; row++) {
+        for (let col=0; col<COLS; col++) {
+            const roomIdx = row*COLS+col;
+            const room = rooms[roomIdx];
+            if (!room) continue;
+            const [tx,ty] = iso(col,row,currentFloor);
+            canvas._roomPositions.push({ room, tx, ty, tw:TW, th:TH });
+        }
+    }
+}
+
+// Canvas hover tooltip
+const isoCanvas = document.getElementById('isoCanvas');
+const tooltip = document.getElementById('isoTooltip');
+
+isoCanvas.addEventListener('mousemove', e=>{
+    const rect = isoCanvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (isoCanvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (isoCanvas.height / rect.height);
+    const positions = isoCanvas._roomPositions || [];
+    let found = null;
+    for (const p of positions) {
+        const dx = mx - p.tx, dy = my - p.ty;
+        if (Math.abs(dx/p.tw)+Math.abs(dy/p.th) < 1.1) { found=p; break; }
+    }
+    if (found) {
+        const typeLabel = ROOM_LABELS[found.room.type] || '空間';
+        tooltip.innerHTML = `<div style="color:#38bdf8;font-weight:700;font-size:11px;font-family:'JetBrains Mono',monospace">${found.room.id}</div><div style="color:#e2e8f0;font-size:11px;margin-top:3px">${found.room.name}</div><div style="color:#64748b;font-size:10px;margin-top:2px">${typeLabel}</div>`;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top = (e.clientY - 20) + 'px';
+    } else {
+        tooltip.style.display = 'none';
+    }
+});
+isoCanvas.addEventListener('mouseleave', ()=>{ tooltip.style.display='none'; });
+
+// Canvas click → select room
+isoCanvas.addEventListener('click', e=>{
+    const rect = isoCanvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (isoCanvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (isoCanvas.height / rect.height);
+    const positions = isoCanvas._roomPositions || [];
+    for (const p of positions) {
+        const dx = mx - p.tx, dy = my - p.ty;
+        if (Math.abs(dx/p.tw)+Math.abs(dy/p.th) < 1.1) {
+            targetRoomId = p.room.id;
+            document.getElementById('roomInput').value = p.room.id;
+            refreshIso();
+            break;
+        }
+    }
+});
+
+// ── Render room list ──
+function renderRoomList(b, floor) {
+    const el = document.getElementById('roomList');
+    el.innerHTML='';
+    const rooms = b.floors[floor.toString()] || [];
+    if (rooms.length===0) {
+        el.innerHTML='<div style="color:var(--muted);font-size:11px;padding:10px;text-align:center;">ℹ️ 該樓層無登錄空間資料</div>';
+        return;
+    }
+    rooms.forEach(room=>{
+        const isHL = targetRoomId===room.id;
+        const icon = room.type==='office'?'💼':room.type==='lab'?'🔬':'🏛️';
+        const typeLabel = ROOM_LABELS[room.type]||'空間';
+        const card = document.createElement('div');
+        card.className = 'room-card' + (isHL?' highlight':'');
+        card.innerHTML = `<div class="room-icon">${icon}</div><div class="room-info"><div class="room-id">${room.id}</div><div class="room-name">${room.name}</div><div class="room-type">${typeLabel}</div></div>`;
+        card.onclick = ()=>{ targetRoomId=room.id; document.getElementById('roomInput').value=room.id; refreshIso(); };
+        el.appendChild(card);
+    });
+}
+
+// ── 3D overlay on map (iso popup layer) ──
+let isoOverlayVisible = false;
+let isoPopup = null;
+function toggleIsoOverlay() {
+    if (!activeBuildingCode) return;
+    const b = buildings[activeBuildingCode];
+    if (isoOverlayVisible && isoPopup) {
+        map.removeLayer(isoPopup); isoPopup=null;
+        isoOverlayVisible=false;
+        document.getElementById('iso3dToggleBtn').textContent='🏗️ 顯示 3D 透視';
+        return;
+    }
+    // Build popup HTML with mini iso canvas
+    const div = document.createElement('div');
+    div.style.cssText='width:280px;padding:8px;';
+    div.innerHTML=`<div style="font-weight:800;color:#38bdf8;font-size:12px;margin-bottom:6px;">🏢 ${b.name} — ${activeBuildingCode} / ${activeFloor}F</div><canvas id="mapIsoCanvas" width="264" height="160" style="display:block;border-radius:6px;"></canvas>`;
+    const popup = L.popup({maxWidth:300}).setLatLng([b.lat,b.lng]).setContent(div).openOn(map);
+    setTimeout(()=>{
+        const c = document.getElementById('mapIsoCanvas');
+        if (c) drawMiniIso(c, b, activeFloor);
+    },50);
+    isoPopup=popup; isoOverlayVisible=true;
+    document.getElementById('iso3dToggleBtn').textContent='✖ 關閉地圖 3D';
+}
+
+function drawMiniIso(canvas, b, floor) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const cw=canvas.width, maxF=b.maxFloor||1;
+    const ISO_X=cw/2, ISO_Y=130, TW=36, TH=18, FH=12, COLS=3, ROWS=2;
+    function iso(col,row,f){ return [ISO_X+(col-row)*TW, ISO_Y+(col+row)*TH-f*FH]; }
+    for(let f=1;f<=Math.min(maxF,10);f++){
+        const rooms=b.floors[f.toString()]||[];
+        const isActive=f===floor;
+        const alpha=isActive?1:0.3;
+        ctx.globalAlpha=alpha;
+        for(let row=0;row<ROWS;row++){
+            for(let col=0;col<COLS;col++){
+                const room=rooms[row*COLS+col];
+                const color=room?(ROOM_COLORS[room.type]||ROOM_COLORS.default):'#1e2d45';
+                const isHL=room&&targetRoomId&&room.id===targetRoomId;
+                const [tx,ty]=iso(col,row,f);
+                ctx.beginPath();ctx.moveTo(tx,ty-TH);ctx.lineTo(tx+TW,ty);ctx.lineTo(tx,ty+TH);ctx.lineTo(tx-TW,ty);ctx.closePath();
+                ctx.fillStyle=isHL?'#fb923c':(room?color+'55':'#1e2d4555');ctx.fill();
+                ctx.strokeStyle=isHL?'#fb923c':color+'88';ctx.lineWidth=1;ctx.stroke();
+                ctx.beginPath();ctx.moveTo(tx-TW,ty);ctx.lineTo(tx,ty+TH);ctx.lineTo(tx,ty+TH+FH);ctx.lineTo(tx-TW,ty+FH);ctx.closePath();
+                ctx.fillStyle='#0a0e1aaa';ctx.fill();ctx.strokeStyle=color+'44';ctx.stroke();
+                ctx.beginPath();ctx.moveTo(tx+TW,ty);ctx.lineTo(tx,ty+TH);ctx.lineTo(tx,ty+TH+FH);ctx.lineTo(tx+TW,ty+FH);ctx.closePath();
+                ctx.fillStyle='#0f1624aa';ctx.fill();ctx.strokeStyle=color+'33';ctx.stroke();
+            }
+        }
+    }
+    ctx.globalAlpha=1;
+}
+
+// ── GPS locate ──
+let userMarker=null;
+function locateUser(){
+    if(!navigator.geolocation){
+        showGpsError('瀏覽器不支援 GPS 定位');
+        return;
+    }
+    const btn = document.querySelector('.map-btn');
+    if(btn){ btn.textContent='📡 定位中…'; btn.disabled=true; }
+    navigator.geolocation.getCurrentPosition(
+        pos=>{
+            const {latitude:lat,longitude:lng}=pos.coords;
+            if(userMarker)map.removeLayer(userMarker);
+            userMarker=L.marker([lat,lng],{
+                icon:L.divIcon({className:'user-dot',iconSize:[14,14],iconAnchor:[7,7]})
+            }).addTo(map).bindPopup('<b>📍 你的位置</b><br>精確度 ±'+Math.round(pos.coords.accuracy)+'m').openPopup();
+            map.setView([lat,lng],17);
+            if(btn){ btn.textContent='📍 定位我的位置'; btn.disabled=false; }
+        },
+        err=>{
+            if(btn){ btn.textContent='📍 定位我的位置'; btn.disabled=false; }
+            const msgs={1:'請在瀏覽器允許位置權限後重試',2:'無法取得位置，請確認 GPS 已開啟',3:'定位逾時，請稍後再試'};
+            showGpsError(msgs[err.code]||'定位失敗');
+        },
+        {enableHighAccuracy:true,timeout:12000,maximumAge:0}
+    );
+}
+function showGpsError(msg){
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2236;border:1px solid rgba(251,146,60,0.4);color:#fb923c;padding:10px 18px;border-radius:8px;font-size:12px;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5);max-width:300px;text-align:center;';
+    el.textContent='⚠️ '+msg;
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(),4000);
+}
+
+// ── Resize handling ──
+window.addEventListener('resize', ()=>{
+    if(activeBuildingCode) refreshIso();
+});
+
+// ════════════════════════════════════════════════
+// 🏠 INDOOR POSITIONING SYSTEM
+// ════════════════════════════════════════════════
+
+// State
+let indoorTracking = false;
+let indoorWatchId  = null;
+let indoorMarker   = null;
+let baseAltitude   = null;
+let altHistory     = [];
+let lastIndoorPos  = null;
+let lastKnownBuilding = null;
+
+// ── Adaptive building radius ──
+// We use the actual GPS accuracy value dynamically instead of a fixed radius.
+// If GPS accuracy > 200m, we find the closest building regardless (best-guess mode).
+const BUILDING_RADIUS_MIN = 60;   // metres — minimum snap distance
+const BUILDING_RADIUS_MAX = 300;  // metres — beyond this, GPS is too bad for building detection
+const FLOOR_HEIGHT_M = 3.5;
+const GPS_ACC_WARN   = 100;       // metres — show warning banner above this
+
+// ── Weighted moving average for altitude smoothing ──
+function smoothAlt(raw) {
+    altHistory.push(raw);
+    if (altHistory.length > 8) altHistory.shift();
+    const sum = altHistory.reduce((a,v,i)=>a + v*(i+1), 0);
+    const w   = altHistory.reduce((_,__,i)=>_+(i+1), 0);
+    return sum / w;
+}
+
+// ── Detect nearest building with adaptive radius ──
+function detectBuilding(lat, lng, accuracy) {
+    let best = null, minD = Infinity;
+    for (const [code, b] of Object.entries(buildings)) {
+        const d = getDistance(lat, lng, b.lat, b.lng);
+        if (d < minD) { minD = d; best = code; }
+    }
+    // Use accuracy-scaled radius: if GPS is bad, be generous
+    const acc = accuracy || 50;
+    const radius = Math.min(BUILDING_RADIUS_MAX, Math.max(BUILDING_RADIUS_MIN, acc * 1.5));
+    return minD <= radius ? best : null;
+}
+
+// ── Infer floor from altitude (GPS altitude is unreliable; treat as hint only) ──
+function inferFloor(altitude, buildingCode) {
+    if (altitude == null) return 1; // default floor 1 if no altitude
+    if (baseAltitude == null) { baseAltitude = altitude; return 1; }
+    const delta = altitude - baseAltitude;
+    const raw   = Math.max(1, Math.round(delta / FLOOR_HEIGHT_M) + 1);
+    const b     = buildings[buildingCode];
+    return b ? Math.min(raw, b.maxFloor) : raw;
+}
+
+// ── Find room nearest to (lat,lng) on given floor ──
+function nearestRoom(buildingCode, floor) {
+    const b = buildings[buildingCode];
+    if (!b) return null;
+    const rooms = b.floors[String(floor)] || [];
+    return rooms[0] || null;
+}
+
+// ── Manual position: populate building selector ──
+function initManualBuildings() {
+    const sel = document.getElementById('manualBuilding');
+    if (!sel || sel.options.length > 1) return;
+    for (const [code, b] of Object.entries(buildings)) {
+        const opt = document.createElement('option');
+        opt.value = code; opt.textContent = `${code} — ${b.name}`;
+        sel.appendChild(opt);
+    }
+}
+function onManualBuildingChange() {
+    const bCode = document.getElementById('manualBuilding').value;
+    const floorSel = document.getElementById('manualFloor');
+    floorSel.innerHTML = '<option value="">— 選擇樓層 —</option>';
+    floorSel.disabled = !bCode;
+    if (!bCode) return;
+    const b = buildings[bCode];
+    for (let f = 1; f <= (b.maxFloor || 1); f++) {
+        const opt = document.createElement('option');
+        opt.value = f; opt.textContent = `${f} 樓`;
+        floorSel.appendChild(opt);
+    }
+}
+function applyManualPos() {
+    const bCode = document.getElementById('manualBuilding').value;
+    const floor = parseInt(document.getElementById('manualFloor').value);
+    if (!bCode) { showGpsError('請先選擇建築'); return; }
+    if (!floor) { showGpsError('請選擇樓層'); return; }
+    const b = buildings[bCode];
+    currentManualFloor = floor;
+    lastKnownBuilding = bCode;
+    const room = nearestRoom(bCode, floor);
+    const fakePos = {
+        buildingCode: bCode, floor, nearestRoom: room,
+        lat: b.lat, lng: b.lng, acc: 0, manual: true
+    };
+    lastIndoorPos = fakePos;
+    updateIndoorUI(fakePos);
+    document.getElementById('manualPosStatus').innerHTML =
+        `<span style="color:var(--success)">✓ 已設定為 ${b.name} ${floor}F</span>`;
+    updateRouteBtnState();
+    showToast(`📌 位置已設為 ${bCode} ${floor}F`);
+}
+
+// ── Manual floor adjustment ──
+let currentManualFloor = 1;
+
+function adjustFloor(delta) {
+    if (!lastIndoorPos || !lastIndoorPos.buildingCode) return;
+    const b = buildings[lastIndoorPos.buildingCode];
+    const maxF = b ? (b.maxFloor || 12) : 12;
+    currentManualFloor = Math.min(maxF, Math.max(1, currentManualFloor + delta));
+    lastIndoorPos.floor = currentManualFloor;
+    lastIndoorPos.nearestRoom = nearestRoom(lastIndoorPos.buildingCode, currentManualFloor);
+    // Update chip display
+    document.getElementById('chipFloor').textContent = currentManualFloor + 'F';
+    document.getElementById('chipRoom').textContent = lastIndoorPos.nearestRoom ? lastIndoorPos.nearestRoom.id.slice(-4) : '--';
+    updateFloorBtnState();
+    // Auto-switch ISO view to new floor
+    if (activeBuildingCode === lastIndoorPos.buildingCode) {
+        showIsoForBuilding(lastIndoorPos.buildingCode, currentManualFloor);
+    }
+    showToast(`🏢 已切換到 ${currentManualFloor}F`);
+}
+
+function updateFloorBtnState() {
+    const bCode = lastIndoorPos && lastIndoorPos.buildingCode;
+    const maxF = bCode ? (buildings[bCode].maxFloor || 12) : 1;
+    const down = document.getElementById('floorDown');
+    const up   = document.getElementById('floorUp');
+    if (!down || !up) return;
+    down.disabled = !bCode || currentManualFloor <= 1;
+    up.disabled   = !bCode || currentManualFloor >= maxF;
+}
+
+// ── Draw "you are here" dot on ISO canvas ──
+function drawIndoorDot(floor, roomIndex) {
+    const canvas  = document.getElementById('isoCanvas');
+    const wrapper = document.getElementById('youAreHere');
+    if (!canvas || !wrapper) return;
+
+    const cw = canvas.width, ch = canvas.height;
+    const rect = canvas.getBoundingClientRect();
+    // We reuse the same iso() params as drawIsoCanvas
+    const ISO_X = cw/2, ISO_Y = 160, TW = 54, TH = 28, FH = 18;
+    const COLS = 3;
+
+    if (floor !== activeFloor) { wrapper.style.display='none'; return; }
+
+    const col = roomIndex % COLS;
+    const row = Math.floor(roomIndex / COLS);
+    const [tx, ty] = [ISO_X + (col-row)*TW, ISO_Y + (col+row)*TH - floor*FH];
+
+    // Scale canvas coords → CSS px
+    const scaleX = rect.width  / cw;
+    const scaleY = rect.height / ch;
+    const cx_px  = tx * scaleX;
+    const cy_px  = ty * scaleY;
+
+    wrapper.style.display = 'block';
+    wrapper.innerHTML = `
+        <div style="position:absolute;left:${cx_px}px;top:${cy_px}px;transform:translate(-50%,-50%);pointer-events:none;">
+            <div style="width:12px;height:12px;background:#38bdf8;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 3px rgba(56,189,248,0.4);position:relative;z-index:2;"></div>
+            <div class="iso-you-ring" style="width:12px;height:12px;position:absolute;top:0;left:0;"></div>
+            <div class="iso-you-ring" style="width:12px;height:12px;position:absolute;top:0;left:0;animation-delay:0.6s;"></div>
+        </div>`;
+}
+
+// ── Update UI chips ──
+function updateIndoorUI(pos) {
+    const dot  = document.getElementById('indoorDot');
+    const txt  = document.getElementById('indoorStatusText');
+    const acc  = document.getElementById('indoorAccBadge');
+    const cB   = document.getElementById('chipBuilding');
+    const cF   = document.getElementById('chipFloor');
+    const cR   = document.getElementById('chipRoom');
+
+    if (!pos) {
+        dot.className  = 'status-dot searching';
+        txt.textContent = '偵測中…';
+        txt.style.color = 'var(--warn)';
+        cB.textContent = '…'; cF.textContent = '…'; cR.textContent = '…';
+        acc.innerHTML  = '';
+        return;
+    }
+
+    if (pos.buildingCode) {
+        dot.className  = 'status-dot active';
+        const accNote = pos.acc > GPS_ACC_WARN ? ` (GPS偏差大，建議手動選擇)` : '';
+        txt.textContent = `已定位：${buildings[pos.buildingCode].name}${accNote}`;
+        txt.style.color = pos.acc > GPS_ACC_WARN ? 'var(--warn)' : 'var(--success)';
+        cB.textContent  = pos.buildingCode;
+        // Only reset floor to 1 if building just changed
+        if (!lastKnownBuilding || lastKnownBuilding !== pos.buildingCode) {
+            currentManualFloor = 1;
+            lastKnownBuilding = pos.buildingCode;
+        }
+        pos.floor = currentManualFloor;
+        pos.nearestRoom = nearestRoom(pos.buildingCode, currentManualFloor);
+        cF.textContent  = currentManualFloor + 'F';
+        cR.textContent  = pos.nearestRoom ? pos.nearestRoom.id.slice(-4) : '--';
+        updateFloorBtnState();
+    } else {
+        dot.className  = 'status-dot searching';
+        const msg = (pos.acc != null && pos.acc > GPS_ACC_WARN)
+            ? `GPS偏差 ±${Math.round(pos.acc)}m，請手動選擇位置`
+            : '校園內 — 建築外';
+        txt.textContent = msg;
+        txt.style.color = (pos.acc != null && pos.acc > GPS_ACC_WARN) ? 'var(--warn)' : 'var(--muted)';
+        cB.textContent  = '戶外'; cF.textContent = '--'; cR.textContent = '--';
+        lastKnownBuilding = null;
+        // Disable floor buttons when outside
+        const down = document.getElementById('floorDown');
+        const up   = document.getElementById('floorUp');
+        if (down) down.disabled = true;
+        if (up)   up.disabled   = true;
+    }
+
+    // Accuracy badge
+    const a = pos.acc;
+    if (a != null && !pos.manual) {
+        const [cls, lbl] = a < 20 ? ['acc-high','高精度'] : a < 100 ? ['acc-mid','中精度'] : ['acc-low','低精度 — 建議手動選擇'];
+        acc.innerHTML = `<span class="acc-badge ${cls}">±${Math.round(a)}m ${lbl}</span>`;
+    } else if (pos.manual) {
+        acc.innerHTML = `<span class="acc-badge acc-high">📌 手動設定</span>`;
+    }
+
+    // Also put marker on map
+    if (indoorMarker) map.removeLayer(indoorMarker);
+    indoorMarker = L.circleMarker([pos.lat, pos.lng], {
+        radius: 8, fillColor: '#38bdf8', color: '#fff', weight: 2, fillOpacity: 0.95
+    }).addTo(map).bindPopup(
+        `<span style="color:#38bdf8;font-weight:800">📡 你在這裡</span><br>` +
+        (pos.buildingCode ? `${buildings[pos.buildingCode].name} ${pos.floor ? pos.floor+'F' : ''}` : '建築外')
+    );
+
+    // Auto-switch ISO to user's building/floor
+    if (pos.buildingCode && pos.floor) {
+        const roomIdx = (buildings[pos.buildingCode].floors[String(pos.floor)] || [])
+            .findIndex(r => r === pos.nearestRoom);
+        if (activeBuildingCode === pos.buildingCode && activeFloor === pos.floor) {
+            drawIndoorDot(pos.floor, Math.max(0, roomIdx));
+        } else if (!activeBuildingCode) {
+            showIsoForBuilding(pos.buildingCode, pos.floor);
+        }
+    }
+}
+
+// ── Main positioning callback ──
+function onPositionUpdate(position) {
+    const { latitude:lat, longitude:lng, altitude, accuracy } = position.coords;
+    const smoothedAlt = altitude != null ? smoothAlt(altitude) : null;
+
+    // Show/hide warning banner based on GPS accuracy
+    const warn = document.getElementById('gpsWarnBanner');
+    const warnAcc = document.getElementById('gpsWarnAcc');
+    if (warn && warnAcc) {
+        if (accuracy != null && accuracy > GPS_ACC_WARN) {
+            warnAcc.textContent = Math.round(accuracy);
+            warn.style.display = 'block';
+        } else if (accuracy != null) {
+            warn.style.display = 'none';
+        }
+    }
+
+    const buildingCode = detectBuilding(lat, lng, accuracy);
+    let floor = null, room = null;
+
+    if (buildingCode) {
+        // Only use altitude-based floor if GPS accuracy is reasonable
+        if (accuracy != null && accuracy < 50) {
+            floor = inferFloor(smoothedAlt, buildingCode);
+        } else {
+            floor = 1; // default floor 1 when GPS is inaccurate
+        }
+        room = floor ? nearestRoom(buildingCode, floor) : null;
+    }
+
+    lastIndoorPos = { buildingCode, floor, nearestRoom: room, lat, lng, acc: accuracy };
+    updateIndoorUI(lastIndoorPos);
+}
+
+function onPositionError(err) {
+    const dot = document.getElementById('indoorDot');
+    const txt = document.getElementById('indoorStatusText');
+    dot.className = 'status-dot';
+    const msgs={1:'未授權 — 請在瀏覽器允許位置權限',2:'位置不可用 — 請確認 GPS 已開啟',3:'定位逾時 — 請稍後重試'};
+    const msg = msgs[err.code]||'定位失敗';
+    txt.textContent = '定位失敗：' + msg;
+    txt.style.color = 'var(--warn)';
+    showGpsError(msg);
+}
+
+// ── Toggle tracking ──
+function toggleIndoorLocate() {
+    if (!navigator.geolocation) { alert('⚠️ 瀏覽器不支援 Geolocation API'); return; }
+
+    const btn = document.getElementById('indoorLocBtn');
+    if (indoorTracking) {
+        // Stop
+        navigator.geolocation.clearWatch(indoorWatchId);
+        indoorWatchId = null;
+        indoorTracking = false;
+        altHistory = []; baseAltitude = null; lastIndoorPos = null;
+        if (indoorMarker) { map.removeLayer(indoorMarker); indoorMarker = null; }
+        document.getElementById('youAreHere').style.display = 'none';
+        const dot = document.getElementById('indoorDot');
+        dot.className = 'status-dot';
+        document.getElementById('indoorStatusText').textContent = '室內定位已停止';
+        document.getElementById('indoorStatusText').style.color = 'var(--muted)';
+        document.getElementById('chipBuilding').textContent = '--';
+        document.getElementById('chipFloor').textContent = '--';
+        document.getElementById('chipRoom').textContent = '--';
+        document.getElementById('indoorAccBadge').innerHTML = '';
+        btn.classList.remove('tracking');
+        btn.textContent = '📡 啟動室內定位';
+    } else {
+        // Start
+        indoorTracking = true;
+        btn.classList.add('tracking');
+        btn.textContent = '⏹ 停止室內定位';
+        updateIndoorUI(null); // show "searching"
+
+        indoorWatchId = navigator.geolocation.watchPosition(
+            onPositionUpdate,
+            onPositionError,
+            { enableHighAccuracy: true, timeout: 12000, maximumAge: 1000 }
+        );
+    }
+}
+
+// ── Demo / simulation mode (for testing without physical movement) ──
+// Triggered by pressing Alt+D — simulates walking into CMA building, floor 9
+document.addEventListener('keydown', e => {
+    if (e.altKey && e.key === 'd') {
+        const b = buildings['CMA'];
+        // Simulate being just inside CMA
+        const fakePos = {
+            coords: {
+                latitude:  b.lat + 0.00005,
+                longitude: b.lng + 0.00005,
+                altitude:  (9 - 1) * FLOOR_HEIGHT_M + 5, // ~9th floor
+                accuracy:  12
+            }
+        };
+        baseAltitude = null; altHistory = [];
+        onPositionUpdate(fakePos);
+        if (!indoorTracking) {
+            document.getElementById('indoorDot').className = 'status-dot active';
+            document.getElementById('indoorLocBtn').classList.add('tracking');
+            document.getElementById('indoorLocBtn').textContent = '⏹ 停止室內定位';
+            indoorTracking = true;
+        }
+        console.log('[IndoorDemo] Simulated CMA 9F position');
+    }
+});
+
+// ── Re-draw indoor dot on floor/building switch ──
+const _origRefreshIso = refreshIso;
+refreshIso = function() {
+    _origRefreshIso();
+    if (lastIndoorPos && lastIndoorPos.buildingCode === activeBuildingCode && lastIndoorPos.floor === activeFloor) {
+        const rooms = buildings[activeBuildingCode].floors[String(activeFloor)] || [];
+        const idx = rooms.findIndex(r => r === lastIndoorPos.nearestRoom);
+        drawIndoorDot(activeFloor, Math.max(0, idx));
+    } else {
+        const el = document.getElementById('youAreHere');
+        if (el) el.style.display = 'none';
+    }
+    drawRouteOnIso(); // redraw route overlay whenever floor changes
+};
+
+// ════════════════════════════════════════════════
+// 🗺️ INDOOR ROUTE PLANNING ENGINE
+// ════════════════════════════════════════════════
+
+let currentRoute   = null; // array of step objects
+let currentStepIdx = 0;
+
+// ── Step types ──
+// { type, icon, action, detail, floor, buildingCode, roomIdx }
+// types: 'start','walk','stairs','lift','exit','outdoor','enter','arrive'
+
+const STEP_ICONS = {
+    start:   '📍', walk: '🚶', stairs: '🪜',
+    lift:    '🛗',  exit: '🚪', outdoor: '🌿',
+    enter:   '🏢', arrive: '🎯'
+};
+
+// ── Floor graph: rooms on same floor are all connected ──
+// Each floor has a "corridor" node that connects all rooms.
+// Stairs/elevator connect floors.
+// We model: room → corridor(floor) → stairs/lift → corridor(floor+N) → room
+// Distance units are "steps" (abstract).
+
+function buildFloorGraph(b) {
+    // Returns adjacency list: node → [{node, cost, type}]
+    // node format: "ROOM:id" | "CORRIDOR:floor" | "STAIRS:floor" | "LIFT:floor"
+    const graph = {};
+    const add = (a, b, cost, type) => {
+        graph[a] = graph[a] || [];
+        graph[b] = graph[b] || [];
+        graph[a].push({ node: b, cost, type });
+        graph[b].push({ node: a, cost, type });
+    };
+
+    const maxF = b.maxFloor || 1;
+    for (let f = 1; f <= maxF; f++) {
+        const corridor = `CORRIDOR:${f}`;
+        const stairs   = `STAIRS:${f}`;
+        const lift     = `LIFT:${f}`;
+
+        // All rooms connect to their floor corridor
+        const rooms = b.floors[String(f)] || [];
+        rooms.forEach((r, i) => {
+            add(`ROOM:${r.id}`, corridor, 5 + i * 2, 'walk');
+        });
+
+        // Stairs & lift connect to corridor
+        add(corridor, stairs, 8, 'walk');
+        add(corridor, lift,   6, 'walk');
+
+        // Stairs connect adjacent floors (cost = floor difference * 10)
+        if (f < maxF) {
+            add(stairs, `STAIRS:${f+1}`, 10, 'stairs');
+            add(lift,   `LIFT:${f+1}`,    7, 'lift');
+        }
+    }
+    return graph;
+}
+
+// ── Dijkstra ──
+function dijkstra(graph, start, end) {
+    const dist = {}, prev = {}, visited = new Set();
+    Object.keys(graph).forEach(n => { dist[n] = Infinity; prev[n] = null; });
+    dist[start] = 0;
+    const queue = [{ node: start, cost: 0 }];
+
+    while (queue.length) {
+        queue.sort((a, b) => a.cost - b.cost);
+        const { node } = queue.shift();
+        if (visited.has(node)) continue;
+        visited.add(node);
+        if (node === end) break;
+        for (const nb of (graph[node] || [])) {
+            const d = dist[node] + nb.cost;
+            if (d < dist[nb.node]) {
+                dist[nb.node] = d;
+                prev[nb.node] = { from: node, type: nb.type };
+                queue.push({ node: nb.node, cost: d });
+            }
+        }
+    }
+
+    // Reconstruct path
+    const path = [];
+    let cur = end;
+    while (cur) {
+        path.unshift({ node: cur, via: prev[cur] });
+        cur = prev[cur] ? prev[cur].from : null;
+    }
+    return path;
+}
+
+// ── Build human-readable steps from path ──
+function pathToSteps(path, b, bCode, srcFloor, dstFloor, dstRoom) {
+    const steps = [];
+    let prevFloor = srcFloor;
+
+    for (let i = 0; i < path.length; i++) {
+        const { node, via } = path[i];
+        if (!via) continue; // start node
+
+        const type = via.type;
+        if (type === 'walk') {
+            if (node.startsWith('CORRIDOR:')) {
+                const f = parseInt(node.split(':')[1]);
+                if (f !== prevFloor) continue; // corridor transition via stairs already handled
+                steps.push({
+                    type: 'walk', icon: STEP_ICONS.walk,
+                    action: `沿走廊行走`,
+                    detail: `${f} 樓走廊`,
+                    floor: f, buildingCode: bCode
+                });
+            } else if (node.startsWith('ROOM:')) {
+                const roomId = node.split(':')[1];
+                const f = getRoomFloor(b, roomId);
+                steps.push({
+                    type: 'walk', icon: STEP_ICONS.walk,
+                    action: `前往 ${roomId}`,
+                    detail: getRoomName(b, roomId),
+                    floor: f, buildingCode: bCode,
+                    roomId
+                });
+            } else if (node.startsWith('STAIRS:') || node.startsWith('LIFT:')) {
+                const f = parseInt(node.split(':')[1]);
+                const isLift = node.startsWith('LIFT:');
+                steps.push({
+                    type: isLift ? 'lift' : 'stairs',
+                    icon: isLift ? STEP_ICONS.lift : STEP_ICONS.stairs,
+                    action: isLift ? `搭乘電梯` : `走樓梯`,
+                    detail: `前往 ${f} 樓`,
+                    floor: f, buildingCode: bCode
+                });
+                prevFloor = f;
+            }
+        } else if (type === 'stairs') {
+            const f = parseInt(node.split(':')[1]);
+            const dir = f > prevFloor ? '上' : '下';
+            steps.push({
+                type: 'stairs', icon: STEP_ICONS.stairs,
+                action: `走樓梯${dir}${Math.abs(f - prevFloor)}層`,
+                detail: `從 ${prevFloor}F → ${f}F`,
+                floor: f, buildingCode: bCode
+            });
+            prevFloor = f;
+        } else if (type === 'lift') {
+            const f = parseInt(node.split(':')[1]);
+            const dir = f > prevFloor ? '上' : '下';
+            steps.push({
+                type: 'lift', icon: STEP_ICONS.lift,
+                action: `搭電梯${dir}至 ${f} 樓`,
+                detail: `從 ${prevFloor}F → ${f}F`,
+                floor: f, buildingCode: bCode
+            });
+            prevFloor = f;
+        }
+    }
+
+    // De-duplicate consecutive same actions
+    return steps.filter((s, i, arr) =>
+        i === 0 || !(s.action === arr[i-1].action && s.floor === arr[i-1].floor)
+    );
+}
+
+function getRoomFloor(b, roomId) {
+    for (const [f, rooms] of Object.entries(b.floors)) {
+        if (rooms.find(r => r.id === roomId)) return parseInt(f);
+    }
+    return 1;
+}
+function getRoomName(b, roomId) {
+    for (const rooms of Object.values(b.floors)) {
+        const r = rooms.find(r => r.id === roomId);
+        if (r) return r.name;
+    }
+    return '';
+}
+
+// ── Master route planner ──
+function planIndoorRoute() {
+    const destQuery = document.getElementById('roomInput').value.trim();
+    if (!destQuery) { alert('請先在搜尋框輸入目的地'); return; }
+
+    // Resolve destination
+    let destBCode = null, destFloor = 1, destRoomId = null;
+    const codeMatch = destQuery.toUpperCase().match(/^([A-Z]{3})(\d{3,4})$/);
+    if (codeMatch && buildings[codeMatch[1]]) {
+        destBCode = codeMatch[1];
+        const rn = codeMatch[2];
+        destFloor = rn.length === 4 ? parseInt(rn.slice(0,2)) : parseInt(rn[0]);
+        const floors = buildings[destBCode].floors[String(destFloor)] || [];
+        const found = floors.find(r => r.id === destQuery.toUpperCase());
+        if (found) destRoomId = found.id;
+    } else {
+        outer: for (const [code, b] of Object.entries(buildings)) {
+            for (const [f, rooms] of Object.entries(b.floors)) {
+                const r = rooms.find(r => r.name.includes(destQuery) || r.id.includes(destQuery.toUpperCase()));
+                if (r) { destBCode = code; destFloor = parseInt(f); destRoomId = r.id; break outer; }
+            }
+        }
+    }
+    if (!destBCode) { alert(`找不到「${destQuery}」，請確認目的地`); return; }
+
+    // Origin: from indoor position or simulate
+    let srcBCode = null, srcFloor = 1, srcRoomId = null;
+    if (lastIndoorPos && lastIndoorPos.buildingCode) {
+        srcBCode  = lastIndoorPos.buildingCode;
+        srcFloor  = lastIndoorPos.floor || 1;
+        srcRoomId = lastIndoorPos.nearestRoom ? lastIndoorPos.nearestRoom.id : null;
+    } else {
+        // No live position → ask user to simulate or use building entrance
+        srcBCode  = destBCode;   // same building, entrance (floor 1)
+        srcFloor  = 1;
+        srcRoomId = null;
+        const rooms1 = buildings[destBCode].floors['1'] || [];
+        if (rooms1.length) srcRoomId = rooms1[0].id;
+    }
+
+    buildRoute(srcBCode, srcFloor, srcRoomId, destBCode, destFloor, destRoomId);
+}
+
+function buildRoute(srcBCode, srcFloor, srcRoomId, destBCode, destFloor, destRoomId) {
+    const steps = [];
+    const srcB = buildings[srcBCode];
+    const dstB = buildings[destBCode];
+
+    // ── Phase 1: Indoor (source building) ──
+    if (srcRoomId) {
+        steps.push({
+            type: 'start', icon: STEP_ICONS.start,
+            action: `出發：${srcRoomId}`,
+            detail: getRoomName(srcB, srcRoomId),
+            floor: srcFloor, buildingCode: srcBCode, roomId: srcRoomId
+        });
+    } else {
+        steps.push({
+            type: 'start', icon: STEP_ICONS.start,
+            action: `出發：${srcBCode} 大樓 ${srcFloor}F`,
+            detail: srcB.name,
+            floor: srcFloor, buildingCode: srcBCode
+        });
+    }
+
+    if (srcBCode === destBCode) {
+        // ── Same building: pathfind through floors ──
+        const graph  = buildFloorGraph(srcB);
+        const start  = srcRoomId  ? `ROOM:${srcRoomId}`  : `CORRIDOR:${srcFloor}`;
+        const end    = destRoomId ? `ROOM:${destRoomId}` : `CORRIDOR:${destFloor}`;
+        const path   = dijkstra(graph, start, end);
+        const indoorSteps = pathToSteps(path, srcB, srcBCode, srcFloor, destFloor, destRoomId);
+        steps.push(...indoorSteps);
+    } else {
+        // ── Cross-building: exit → outdoor → enter → floor navigate ──
+        // Phase 1b: go to floor 1 (exit)
+        if (srcFloor > 1) {
+            const useLift = srcFloor > 3;
+            steps.push({
+                type: useLift ? 'lift' : 'stairs',
+                icon: useLift ? STEP_ICONS.lift : STEP_ICONS.stairs,
+                action: useLift ? `搭電梯至 1 樓` : `走樓梯下至 1 樓`,
+                detail: `從 ${srcFloor}F → 1F`,
+                floor: 1, buildingCode: srcBCode
+            });
+        }
+        steps.push({
+            type: 'exit', icon: STEP_ICONS.exit,
+            action: `從 ${srcB.name} 出口離開`,
+            detail: `步行至 ${dstB.name}`,
+            floor: 1, buildingCode: srcBCode
+        });
+
+        // Phase 2: outdoor walking
+        const outdoorDist = Math.round(getDistance(srcB.lat, srcB.lng, dstB.lat, dstB.lng));
+        const outdoorMin  = Math.ceil(outdoorDist / 80);
+        steps.push({
+            type: 'outdoor', icon: STEP_ICONS.outdoor,
+            action: `戶外步行前往 ${dstB.name}`,
+            detail: `約 ${outdoorDist}m，${outdoorMin} 分鐘`,
+            floor: 1, buildingCode: destBCode,
+            outdoorDist
+        });
+
+        // Phase 3: enter destination building
+        steps.push({
+            type: 'enter', icon: STEP_ICONS.enter,
+            action: `進入 ${dstB.name}`,
+            detail: `${destBCode} — ${buildings[destBCode].campus}`,
+            floor: 1, buildingCode: destBCode
+        });
+
+        // Phase 4: navigate to target floor
+        if (destFloor > 1) {
+            const useLift = destFloor > 3;
+            steps.push({
+                type: useLift ? 'lift' : 'stairs',
+                icon: useLift ? STEP_ICONS.lift : STEP_ICONS.stairs,
+                action: useLift ? `搭電梯至 ${destFloor} 樓` : `走樓梯至 ${destFloor} 樓`,
+                detail: `1F → ${destFloor}F`,
+                floor: destFloor, buildingCode: destBCode
+            });
+        }
+
+        // Navigate on destination floor
+        if (destRoomId) {
+            const graph = buildFloorGraph(dstB);
+            const start = `CORRIDOR:${destFloor}`;
+            const end   = `ROOM:${destRoomId}`;
+            const path  = dijkstra(graph, start, end);
+            const s     = pathToSteps(path, dstB, destBCode, destFloor, destFloor, destRoomId);
+            steps.push(...s.filter(x => x.type === 'walk' && x.roomId));
+        }
+    }
+
+    // Final step: arrive
+    steps.push({
+        type: 'arrive', icon: STEP_ICONS.arrive,
+        action: `抵達目的地${destRoomId ? `：${destRoomId}` : ''}`,
+        detail: destRoomId ? getRoomName(dstB, destRoomId) : dstB.name,
+        floor: destFloor, buildingCode: destBCode, roomId: destRoomId
+    });
+
+    // Calculate totals
+    const totalFloors = Math.abs(destFloor - (srcBCode === destBCode ? srcFloor : 1));
+    const indoorStepCount = steps.filter(s => ['walk','stairs','lift'].includes(s.type)).length;
+    const outdoor = steps.find(s => s.type === 'outdoor');
+    const totalMin = (outdoor ? Math.ceil(outdoor.outdoorDist/80) : 0) + indoorStepCount * 1 + totalFloors;
+
+    currentRoute = steps;
+    currentStepIdx = 0;
+    renderRoutePanel(steps, totalFloors, indoorStepCount, totalMin);
+    drawRouteOnIso();
+
+    // Focus ISO on departure
+    const firstStep = steps[0];
+    showIsoForBuilding(firstStep.buildingCode, firstStep.floor);
+}
+
+// ── Render route panel ──
+function renderRoutePanel(steps, floors, indoorSteps, totalMin) {
+    const panel = document.getElementById('routePanel');
+    panel.classList.add('show');
+    document.getElementById('routeEmptyState').style.display = 'none';
+
+    // Update badge
+    const badge = document.getElementById('routeStepBadge');
+    badge.textContent = steps.length;
+    document.getElementById('tabBtnRoute').classList.add('has-badge');
+
+    // Auto-switch to route tab
+    switchTab('route');
+
+    // Summary chips
+    document.getElementById('routeSummary').innerHTML = `
+        <div class="route-chip"><div class="route-chip-val">${steps.length}</div><div class="route-chip-lbl">步驟</div></div>
+        <div class="route-chip"><div class="route-chip-val">${totalMin}分</div><div class="route-chip-lbl">預估時間</div></div>
+        <div class="route-chip"><div class="route-chip-val">${floors}層</div><div class="route-chip-lbl">樓層差</div></div>
+    `;
+
+    renderStepList();
+    // Also draw route ISO in route tab after initial render
+    drawRouteTabIso();
+}
+
+function renderStepList() {
+    const list = document.getElementById('stepList');
+    list.innerHTML = '';
+    currentRoute.forEach((step, i) => {
+        const div = document.createElement('div');
+        const cls = i < currentStepIdx ? 'done' : i === currentStepIdx ? 'current' : '';
+        div.className = `step-item step-type-${step.type} ${cls}`;
+        div.innerHTML = `
+            <div class="step-icon">${step.icon}</div>
+            <div class="step-num">${i + 1}</div>
+            <div class="step-body">
+                <div class="step-action">${step.action}</div>
+                <div class="step-detail">${step.detail}</div>
+            </div>`;
+        div.onclick = () => jumpToStep(i);
+        list.appendChild(div);
+    });
+    // Scroll current into view
+    const items = list.querySelectorAll('.step-item');
+    if (items[currentStepIdx]) items[currentStepIdx].scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function jumpToStep(i) {
+    currentStepIdx = i;
+    renderStepList();
+    const step = currentRoute[i];
+    showIsoForBuilding(step.buildingCode, step.floor);
+    drawRouteOnIso();
+    drawRouteTabIso();
+    speakStep(step);
+}
+
+function nextStep() {
+    if (!currentRoute || currentStepIdx >= currentRoute.length - 1) return;
+    currentStepIdx++;
+    const step = currentRoute[currentStepIdx];
+    renderStepList();
+    showIsoForBuilding(step.buildingCode, step.floor);
+    drawRouteOnIso();
+    drawRouteTabIso();
+    speakStep(step);
+}
+
+function prevStep() {
+    if (!currentRoute || currentStepIdx <= 0) return;
+    currentStepIdx--;
+    const step = currentRoute[currentStepIdx];
+    renderStepList();
+    showIsoForBuilding(step.buildingCode, step.floor);
+    drawRouteOnIso();
+    drawRouteTabIso();
+}
+
+function clearRoute() {
+    currentRoute = null;
+    currentStepIdx = 0;
+    document.getElementById('routePanel').classList.remove('show');
+    document.getElementById('routeEmptyState').style.display = 'block';
+    document.getElementById('tabBtnRoute').classList.remove('has-badge');
+    clearRouteCanvas();
+}
+
+// ── Text-to-Speech ──
+function speakStep(step) {
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(step.action + (step.detail ? '，' + step.detail : ''));
+    u.lang = 'zh-TW'; u.rate = 0.95; u.pitch = 1;
+    speechSynthesis.speak(u);
+}
+
+// ── Draw route path on ISO canvas ──
+function clearRouteCanvas() {
+    const rc = document.getElementById('isoRouteCanvas');
+    if (!rc) return;
+    const ctx = rc.getContext('2d');
+    ctx.clearRect(0, 0, rc.width, rc.height);
+}
+
+function drawRouteOnIso() {
+    const rc = document.getElementById('isoRouteCanvas');
+    const mc = document.getElementById('isoCanvas');
+    if (!rc || !mc || !currentRoute) { clearRouteCanvas(); return; }
+
+    rc.width  = mc.width;
+    rc.height = mc.height;
+    rc.style.width  = mc.style.width  || '100%';
+    rc.style.height = mc.offsetHeight + 'px';
+
+    const ctx = rc.getContext('2d');
+    ctx.clearRect(0, 0, rc.width, rc.height);
+
+    // Re-use same ISO geometry
+    const cw = rc.width;
+    const ISO_X = cw / 2, ISO_Y = 160, TW = 54, TH = 28, FH = 18, COLS = 3;
+    const b = buildings[activeBuildingCode];
+
+    function roomToIsoXY(roomId) {
+        const rooms = b.floors[String(activeFloor)] || [];
+        const idx = rooms.findIndex(r => r.id === roomId);
+        if (idx < 0) return null;
+        const col = idx % COLS, row = Math.floor(idx / COLS);
+        return [ISO_X + (col - row) * TW, ISO_Y + (col + row) * TH - activeFloor * FH];
+    }
+
+    // Find steps that belong to current floor & building
+    const relevantSteps = currentRoute.filter(s =>
+        s.buildingCode === activeBuildingCode && s.floor === activeFloor && s.roomId
+    );
+
+    // Draw path segments (needs ≥2 points)
+    if (relevantSteps.length >= 2) {
+        for (let i = 0; i < relevantSteps.length - 1; i++) {
+            const a = roomToIsoXY(relevantSteps[i].roomId);
+            const b2 = roomToIsoXY(relevantSteps[i + 1].roomId);
+            if (!a || !b2) continue;
+
+            const isDone = currentRoute.indexOf(relevantSteps[i]) < currentStepIdx;
+            ctx.beginPath();
+            ctx.moveTo(a[0], a[1]);
+            ctx.lineTo(b2[0], b2[1]);
+            ctx.strokeStyle = isDone ? 'rgba(52,211,153,0.7)' : 'rgba(129,140,248,0.85)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Arrow head at midpoint
+            const mx = (a[0] + b2[0]) / 2, my = (a[1] + b2[1]) / 2;
+            const angle = Math.atan2(b2[1] - a[1], b2[0] - a[0]);
+            ctx.beginPath();
+            ctx.moveTo(mx, my);
+            ctx.lineTo(mx - 7 * Math.cos(angle - 0.4), my - 7 * Math.sin(angle - 0.4));
+            ctx.lineTo(mx - 7 * Math.cos(angle + 0.4), my - 7 * Math.sin(angle + 0.4));
+            ctx.closePath();
+            ctx.fillStyle = isDone ? '#34d399' : '#818cf8';
+            ctx.fill();
+        }
+    }
+
+    // ── Orange dot: current step position (always draw if on this floor) ──
+    const curStep = currentRoute[currentStepIdx];
+    if (curStep && curStep.buildingCode === activeBuildingCode &&
+        curStep.floor === activeFloor && curStep.roomId) {
+        const pos = roomToIsoXY(curStep.roomId);
+        if (pos) {
+            // Pulse ring
+            ctx.beginPath();
+            ctx.arc(pos[0], pos[1], 11, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(251,146,60,0.2)';
+            ctx.fill();
+            // Dot
+            ctx.beginPath();
+            ctx.arc(pos[0], pos[1], 7, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(251,146,60,0.95)';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // Label
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 8px JetBrains Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('YOU', pos[0], pos[1] + 3);
+        }
+    }
+}
+
+// ── Draw ISO in the route tab (dedicated canvas) ──
+function drawRouteTabIso() {
+    if (!currentRoute) return;
+    const step = currentRoute[currentStepIdx];
+    if (!step) return;
+
+    const bCode = step.buildingCode;
+    const floor = step.floor || 1;
+    const b = buildings[bCode];
+    if (!b) return;
+
+    // Update floor label
+    document.getElementById('routeIsoFloorLabel').textContent = `${bCode} · ${floor}F`;
+
+    // Build floor tabs in route panel
+    const tabsEl = document.getElementById('routeFloorTabs');
+    tabsEl.innerHTML = '';
+    for (let f = 1; f <= (b.maxFloor || 1); f++) {
+        const btn = document.createElement('button');
+        btn.className = 'floor-tab' + (f === floor ? ' active' : '');
+        btn.textContent = `${f}F`;
+        btn.style.cssText = 'padding:3px 9px;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;transition:all 0.15s;border:1px solid var(--border);background:' + (f===floor?'var(--accent)':'var(--bg)') + ';color:' + (f===floor?'#000':'var(--muted)') + ';font-family:JetBrains Mono,monospace;';
+        tabsEl.appendChild(btn);
+    }
+
+    // Draw the ISO building on route canvas
+    const canvas = document.getElementById('isoCanvasRoute');
+    const cw = canvas.parentElement.clientWidth - 20;
+    canvas.width = cw;
+    canvas.height = 200;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, cw, 200);
+
+    const ISO_X = cw/2, ISO_Y = 148, TW = 48, TH = 25, FH = 16, COLS = 3, ROWS = 2;
+    function iso(col, row, f) {
+        return [ISO_X + (col - row) * TW, ISO_Y + (col + row) * TH - f * FH];
+    }
+
+    for (let f = 1; f <= Math.min(b.maxFloor || 1, 12); f++) {
+        const rooms = b.floors[f.toString()] || [];
+        const isActive = f === floor;
+        ctx.globalAlpha = isActive ? 1 : 0.3;
+        for (let row = 0; row < ROWS; row++) {
+            for (let col = 0; col < COLS; col++) {
+                const room = rooms[row * COLS + col];
+                const color = room ? (ROOM_COLORS[room.type] || ROOM_COLORS.default) : '#1e2d45';
+                const isHL = room && targetRoomId && room.id === targetRoomId;
+                const [tx, ty] = iso(col, row, f);
+                // Top face
+                ctx.beginPath(); ctx.moveTo(tx,ty-TH); ctx.lineTo(tx+TW,ty); ctx.lineTo(tx,ty+TH); ctx.lineTo(tx-TW,ty); ctx.closePath();
+                ctx.fillStyle = isHL ? '#fb923c' : (room ? color+'55' : '#1e2d4555'); ctx.fill();
+                ctx.strokeStyle = isHL ? '#fb923c' : color+'88'; ctx.lineWidth = 1; ctx.stroke();
+                if (room && isActive) { ctx.fillStyle = isHL?'#fff':color; ctx.font=`bold 7px JetBrains Mono,monospace`; ctx.textAlign='center'; ctx.fillText(room.id.slice(-4), tx, ty-1); }
+                // Left face
+                ctx.beginPath(); ctx.moveTo(tx-TW,ty); ctx.lineTo(tx,ty+TH); ctx.lineTo(tx,ty+TH+FH); ctx.lineTo(tx-TW,ty+FH); ctx.closePath();
+                ctx.fillStyle='#0a0e1aaa'; ctx.fill(); ctx.strokeStyle=color+'44'; ctx.stroke();
+                // Right face
+                ctx.beginPath(); ctx.moveTo(tx+TW,ty); ctx.lineTo(tx,ty+TH); ctx.lineTo(tx,ty+TH+FH); ctx.lineTo(tx+TW,ty+FH); ctx.closePath();
+                ctx.fillStyle='#0f1624aa'; ctx.fill(); ctx.strokeStyle=color+'33'; ctx.stroke();
+            }
+        }
+    }
+    ctx.globalAlpha = 1;
+
+    // Draw floor label
+    const [lx, ly] = iso(1, 0.5, floor);
+    ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 10px Noto Sans TC,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`${floor}F`, lx, ly - TH - 4);
+
+    // ── Draw route overlay on route canvas ──
+    const rc = document.getElementById('isoRouteCanvasRoute');
+    rc.width = cw; rc.height = 200;
+    const rctx = rc.getContext('2d');
+    rctx.clearRect(0, 0, cw, 200);
+
+    function roomToXY(roomId) {
+        const rooms = b.floors[String(floor)] || [];
+        const idx = rooms.findIndex(r => r.id === roomId);
+        if (idx < 0) return null;
+        const col = idx % COLS, row = Math.floor(idx / COLS);
+        return [ISO_X + (col - row) * TW, ISO_Y + (col + row) * TH - floor * FH];
+    }
+
+    const relevantSteps = currentRoute.filter(s => s.buildingCode === bCode && s.floor === floor && s.roomId);
+
+    if (relevantSteps.length >= 2) {
+        for (let i = 0; i < relevantSteps.length - 1; i++) {
+            const a = roomToXY(relevantSteps[i].roomId);
+            const b2 = roomToXY(relevantSteps[i + 1].roomId);
+            if (!a || !b2) continue;
+            const isDone = currentRoute.indexOf(relevantSteps[i]) < currentStepIdx;
+            rctx.beginPath(); rctx.moveTo(a[0],a[1]); rctx.lineTo(b2[0],b2[1]);
+            rctx.strokeStyle = isDone ? 'rgba(52,211,153,0.7)' : 'rgba(129,140,248,0.85)';
+            rctx.lineWidth = 3; rctx.setLineDash([6,4]); rctx.stroke(); rctx.setLineDash([]);
+            const mx=(a[0]+b2[0])/2, my=(a[1]+b2[1])/2;
+            const angle = Math.atan2(b2[1]-a[1], b2[0]-a[0]);
+            rctx.beginPath(); rctx.moveTo(mx,my);
+            rctx.lineTo(mx-7*Math.cos(angle-0.4), my-7*Math.sin(angle-0.4));
+            rctx.lineTo(mx-7*Math.cos(angle+0.4), my-7*Math.sin(angle+0.4));
+            rctx.closePath(); rctx.fillStyle = isDone?'#34d399':'#818cf8'; rctx.fill();
+        }
+    }
+
+    // Orange dot for current step
+    if (step.roomId) {
+        const pos = roomToXY(step.roomId);
+        if (pos) {
+            rctx.beginPath(); rctx.arc(pos[0],pos[1],11,0,Math.PI*2);
+            rctx.fillStyle='rgba(251,146,60,0.2)'; rctx.fill();
+            rctx.beginPath(); rctx.arc(pos[0],pos[1],7,0,Math.PI*2);
+            rctx.fillStyle='rgba(251,146,60,0.95)'; rctx.fill();
+            rctx.strokeStyle='#fff'; rctx.lineWidth=2; rctx.stroke();
+            rctx.fillStyle='#fff'; rctx.font='bold 8px JetBrains Mono,monospace';
+            rctx.textAlign='center'; rctx.fillText('YOU',pos[0],pos[1]+3);
+        }
+    }
+}
+
+// ── Enable route btn when indoor pos or target available ──
+function updateRouteBtnState() {
+    const btn = document.getElementById('routePlanBtn');
+    const hasTarget = document.getElementById('roomInput').value.trim().length > 0;
+    btn.disabled = !hasTarget;
+}
+document.getElementById('roomInput').addEventListener('input', updateRouteBtnState);
+updateRouteBtnState();
+
+
+</script>
+<!-- Image lightbox -->
+<div id="imgLightbox" onclick="closeLightbox()">
+    <img id="lightboxImg" src="" alt="">
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+// 💬 SOCIAL FEED SYSTEM
+// ════════════════════════════════════════════════
+
+// localStorage-backed post store (persists across page refreshes)
+const POSTS_KEY = 'nfu_map_posts_v1';
+
+function savePosts() {
+    try {
+        const serializable = posts.map(p => ({
+            ...p,
+            timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp
+        }));
+        localStorage.setItem(POSTS_KEY, JSON.stringify(serializable));
+    } catch(e) { console.warn('儲存貼文失敗', e); }
+}
+
+function loadPosts() {
+    try {
+        const raw = localStorage.getItem(POSTS_KEY);
+        if (!raw) return [];
+        return JSON.parse(raw).map(p => ({
+            ...p,
+            timestamp: new Date(p.timestamp)
+        }));
+    } catch(e) { console.warn('讀取貼文失敗', e); return []; }
+}
+
+let posts = loadPosts();
+let feedFilter = 'all';
+let composerPhotoData = null; // base64 data URL
+let currentNickname = '訪客' + Math.floor(Math.random()*9000+1000);
+
+// ── Init composer building options ──
+function initComposerBuildings() {
+    const sel = document.getElementById('composerBuilding');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— 選擇建築 —</option>';
+    for (const [code, b] of Object.entries(buildings)) {
+        const opt = document.createElement('option');
+        opt.value = code; opt.textContent = `${code} ${b.name}`;
+        sel.appendChild(opt);
+    }
+}
+
+function onComposerBuildingChange() {
+    const bCode = document.getElementById('composerBuilding').value;
+    const roomSel = document.getElementById('composerRoom');
+    roomSel.innerHTML = '<option value="">— 選擇空間（選填）—</option>';
+    if (!bCode || !buildings[bCode]) return;
+    const b = buildings[bCode];
+    for (const [floor, rooms] of Object.entries(b.floors)) {
+        rooms.forEach(room => {
+            const opt = document.createElement('option');
+            opt.value = room.id;
+            opt.textContent = `${room.id} ${room.name}`;
+            roomSel.appendChild(opt);
+        });
+    }
+    // Show "此建築" filter
+    const fb = document.getElementById('filterBuildingBtn');
+    if (fb) { fb.textContent = `🏢 ${bCode}`; fb.style.display=''; }
+}
+
+// ── Photo handling ──
+function onPhotoSelected(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 5*1024*1024) { showGpsError('圖片過大，請選擇 5MB 以內的照片'); input.value=''; return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+        composerPhotoData = e.target.result;
+        document.getElementById('previewImg').src = composerPhotoData;
+        document.getElementById('composerPhotoPreview').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearPhoto() {
+    composerPhotoData = null;
+    document.getElementById('composerPhoto').value = '';
+    document.getElementById('composerPhotoPreview').style.display = 'none';
+    document.getElementById('previewImg').src = '';
+}
+
+// ── Char counter ──
+// ── Submit post ──
+function submitPost() {
+    const bCode = document.getElementById('composerBuilding').value;
+    const roomId = document.getElementById('composerRoom').value;
+    const text   = document.getElementById('composerText').value.trim();
+    if (!bCode) { showGpsError('請先選擇一個地點'); return; }
+    if (!text && !composerPhotoData) { showGpsError('請輸入內容或加入照片'); return; }
+
+    const b = buildings[bCode];
+    let locLabel = b.name;
+    if (roomId) {
+        // Find room name
+        for (const rooms of Object.values(b.floors)) {
+            const r = rooms.find(r => r.id === roomId);
+            if (r) { locLabel = `${b.name} · ${r.name}`; break; }
+        }
+    }
+
+    const post = {
+        id: Date.now() + Math.random(),
+        nickname: currentNickname,
+        buildingCode: bCode,
+        roomId: roomId || null,
+        locLabel,
+        text,
+        photo: composerPhotoData,
+        timestamp: new Date(),
+        likes: 0,
+        likedByMe: false,
+        replies: [],
+        repliesOpen: false
+    };
+    posts.unshift(post);
+    savePosts();
+
+    // Reset composer
+    document.getElementById('composerText').value = '';
+    document.getElementById('composerCharCount').textContent = '0/280';
+    clearPhoto();
+
+    renderFeed();
+    showToast('✅ 貼文已發布！');
+}
+
+// ── Feed rendering ──
+function renderFeed() {
+    const feed = document.getElementById('socialFeed');
+    if (!feed) return;
+    feed.innerHTML = '';
+
+    let filtered = [...posts];
+    if (feedFilter === 'photos') filtered = filtered.filter(p => p.photo);
+    if (feedFilter === 'building') {
+        const bCode = document.getElementById('composerBuilding').value;
+        if (bCode) filtered = filtered.filter(p => p.buildingCode === bCode);
+    }
+
+    if (filtered.length === 0) {
+        feed.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--muted);">
+            <div style="font-size:32px;margin-bottom:10px;">💬</div>
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:5px;">還沒有貼文</div>
+            <div style="font-size:11px;line-height:1.6;">選擇一個地點，分享你的校園日常！</div>
+        </div>`;
+        return;
+    }
+
+    filtered.forEach(post => {
+        const card = createPostCard(post);
+        feed.appendChild(card);
+    });
+}
+
+function createPostCard(post) {
+    const div = document.createElement('div');
+    div.className = 'post-card';
+    div.dataset.postId = post.id;
+
+    const timeAgo = formatTimeAgo(post.timestamp);
+    const photoHtml = post.photo
+        ? `<img class="post-img" src="${post.photo}" alt="貼文照片" onclick="openLightbox('${post.id}')">`
+        : '';
+    const repliesCount = post.replies.length;
+
+    div.innerHTML = `
+        <div class="post-loc" onclick="jumpToBuilding('${post.buildingCode}')">
+            📍 ${escapeHtml(post.locLabel)}
+        </div>
+        ${post.text ? `<div class="post-text">${escapeHtml(post.text)}</div>` : ''}
+        ${photoHtml}
+        <div class="post-meta">
+            <span class="post-time">@${escapeHtml(post.nickname)} · ${timeAgo}</span>
+            <button class="post-like-btn${post.likedByMe?' liked':''}" onclick="toggleLike('${post.id}')">
+                ${post.likedByMe?'❤️':'🤍'} ${post.likes}
+            </button>
+            <button class="post-reply-btn" onclick="toggleReplies('${post.id}')">
+                💬 ${repliesCount > 0 ? repliesCount + ' 則' : '回覆'}
+            </button>
+        </div>
+        <div class="replies-section${post.repliesOpen?' open':''}" id="replies-${post.id}">
+            ${post.replies.map(r => `
+                <div class="reply-item">
+                    <span class="reply-nick">@${escapeHtml(r.nickname)}</span>${escapeHtml(r.text)}<span class="reply-time">${formatTimeAgo(r.timestamp)}</span>
+                </div>`).join('')}
+            <div class="reply-composer">
+                <input class="reply-input" type="text" placeholder="寫留言…" maxlength="140"
+                    id="replyInput-${post.id}" onkeydown="if(event.key==='Enter')sendReply('${post.id}')">
+                <button class="reply-send-btn" onclick="sendReply('${post.id}')">送出</button>
+            </div>
+        </div>
+    `;
+    return div;
+}
+
+// ── Interactions ──
+function toggleLike(postId) {
+    const post = posts.find(p => String(p.id) === String(postId));
+    if (!post) return;
+    post.likedByMe = !post.likedByMe;
+    post.likes += post.likedByMe ? 1 : -1;
+    savePosts();
+    renderFeed();
+}
+
+function toggleReplies(postId) {
+    const post = posts.find(p => String(p.id) === String(postId));
+    if (!post) return;
+    post.repliesOpen = !post.repliesOpen;
+    renderFeed();
+    if (post.repliesOpen) {
+        setTimeout(() => {
+            const inp = document.getElementById('replyInput-' + postId);
+            if (inp) inp.focus();
+        }, 50);
+    }
+}
+
+function sendReply(postId) {
+    const inp = document.getElementById('replyInput-' + postId);
+    if (!inp) return;
+    const text = inp.value.trim();
+    if (!text) return;
+    const post = posts.find(p => String(p.id) === String(postId));
+    if (!post) return;
+    post.replies.push({ nickname: currentNickname, text, timestamp: new Date() });
+    post.repliesOpen = true;
+    renderFeed();
+}
+
+function setFeedFilter(filter, btn) {
+    feedFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderFeed();
+}
+
+// ── Jump to building on map ──
+function jumpToBuilding(bCode) {
+    const b = buildings[bCode];
+    if (!b) return;
+    map.setView([b.lat, b.lng], 18);
+    switchTab('search');
+    showIsoForBuilding(bCode, 1);
+}
+
+// ── Lightbox ──
+function openLightbox(postId) {
+    const post = posts.find(p => String(p.id) === String(postId));
+    if (!post || !post.photo) return;
+    document.getElementById('lightboxImg').src = post.photo;
+    document.getElementById('imgLightbox').classList.add('open');
+}
+function closeLightbox() {
+    document.getElementById('imgLightbox').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+// ── Utilities ──
+function formatTimeAgo(date) {
+    const s = Math.floor((Date.now() - new Date(date)) / 1000);
+    if (s < 60) return '剛剛';
+    if (s < 3600) return Math.floor(s/60) + ' 分鐘前';
+    if (s < 86400) return Math.floor(s/3600) + ' 小時前';
+    return Math.floor(s/86400) + ' 天前';
+}
+function escapeHtml(str) {
+    return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showToast(msg) {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid rgba(52,211,153,0.4);color:var(--success);padding:10px 18px;border-radius:8px;font-size:12px;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2500);
+}
+
+// Seed demo posts on load (only if no saved posts exist)
+(function seedDemoPosts() {
+    if (posts.length > 0) return; // already have saved posts
+    const demo = [
+        { bCode:'CMA', roomId:'CMA0907', nick:'小明同學', text:'羅老師今天說期末考提前，大家注意！', photo:null, likes:12 },
+        { bCode:'BGC', roomId:'BGC0401', nick:'資工系學生', text:'BGC 4F 系辦今天開放補課申請，記得去辦！', photo:null, likes:7 },
+        { bCode:'BGA', roomId:'BGA0101', nick:'光電系阿俊', text:'一樓實習工廠冷氣壞了，熱到不行😅', photo:null, likes:23 },
+    ];
+    demo.forEach((d,i) => {
+        const b = buildings[d.bCode];
+        let locLabel = b.name;
+        if (d.roomId) {
+            for (const rooms of Object.values(b.floors)) {
+                const r = rooms.find(r=>r.id===d.roomId);
+                if (r) { locLabel = `${b.name} · ${r.name}`; break; }
+            }
+        }
+        posts.push({
+            id: Date.now() - (demo.length-i)*100000,
+            nickname: d.nick, buildingCode: d.bCode, roomId: d.roomId,
+            locLabel, text: d.text, photo: null,
+            timestamp: new Date(Date.now() - (demo.length-i)*3600000),
+            likes: d.likes, likedByMe: false, replies: [], repliesOpen: false
+        });
+    });
+    savePosts();
+})();
+
+// Wire up textarea char counter (runs after DOM ready since this script is at end of body)
+(function() {
+    const ta = document.getElementById('composerText');
+    if (ta) ta.addEventListener('input', () => {
+        document.getElementById('composerCharCount').textContent = ta.value.length + '/280';
+    });
+    initComposerBuildings();
+    initManualBuildings();
+})();
+</script>
+</body>
